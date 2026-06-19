@@ -89,3 +89,10 @@ class ProjectDetail(ProjectInfo):
 class MemoryNoteCreate(BaseModel):
     agent: str
     value: str
+
+
+# ─── Экспорт документов ───────────────────────────────────────────────
+
+class ExportRequest(BaseModel):
+    project_id: str
+    doc_type: Literal["docx", "xlsx", "pdf"]

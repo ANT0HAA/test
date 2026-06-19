@@ -57,6 +57,38 @@ export async function clearSession(sessionId: string): Promise<void> {
   await fetch(`${API_BASE}/api/session/${sessionId}`, { method: 'DELETE' })
 }
 
+export type ExportDocType = 'docx' | 'xlsx' | 'pdf'
+
+/** Сформировать документ по проекту и инициировать скачивание файла. */
+export async function exportDocument(
+  projectId: string,
+  docType: ExportDocType
+): Promise<void> {
+  const res = await fetch(`${API_BASE}/api/export`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ project_id: projectId, doc_type: docType }),
+  })
+  if (!res.ok) {
+    const err = await res.json().catch(() => ({ detail: 'Ошибка экспорта' }))
+    throw new Error(err.detail || 'Ошибка экспорта')
+  }
+  // Имя файла из заголовка Content-Disposition (filename*=UTF-8'')
+  const cd = res.headers.get('Content-Disposition') ?? ''
+  const match = /filename\*=UTF-8''([^;]+)/.exec(cd)
+  const filename = match ? decodeURIComponent(match[1]) : `document.${docType}`
+
+  const blob = await res.blob()
+  const url = URL.createObjectURL(blob)
+  const a = document.createElement('a')
+  a.href = url
+  a.download = filename
+  document.body.appendChild(a)
+  a.click()
+  a.remove()
+  URL.revokeObjectURL(url)
+}
+
 export interface LlmStatus {
   provider: string
   reachable: boolean

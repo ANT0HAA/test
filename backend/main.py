@@ -16,8 +16,11 @@ import logging
 from pathlib import Path
 from typing import Any
 
+from urllib.parse import quote
+
 from fastapi import FastAPI, WebSocket, WebSocketDisconnect, UploadFile, File, Form, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import Response
 from langchain_core.messages import HumanMessage
 
 from config import settings
@@ -27,8 +30,10 @@ from knowledge.chroma import add_file, list_collections
 from models.schemas import (
     UploadResponse, AgentInfo, HealthResponse,
     ProjectCreate, ProjectInfo, ProjectDetail, ProjectMessageInfo, MemoryNoteCreate,
+    ExportRequest,
 )
 from storage import db as storage
+from export import build_document
 
 logging.basicConfig(level=logging.INFO)
 log = logging.getLogger(__name__)
@@ -385,6 +390,26 @@ async def add_project_memory(project_id: str, payload: MemoryNoteCreate):
         raise HTTPException(status_code=404, detail="Проект не найден")
     await storage.add_memory(project_id, payload.agent, payload.value)
     return {"ok": True}
+
+
+# ─── REST: экспорт документов (DOCX / XLSX / PDF) ─────────────────────
+
+@app.post("/api/export")
+async def export_document(payload: ExportRequest):
+    """Сформировать документ по проекту и вернуть файл на скачивание."""
+    try:
+        content, mime, filename = await build_document(payload.project_id, payload.doc_type)
+    except LookupError:
+        raise HTTPException(status_code=404, detail="Проект не найден")
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+
+    # RFC 5987 — корректное имя файла с кириллицей
+    quoted = quote(filename)
+    headers = {
+        "Content-Disposition": f"attachment; filename=\"{quoted}\"; filename*=UTF-8''{quoted}"
+    }
+    return Response(content=content, media_type=mime, headers=headers)
 
 
 # ─── Entrypoint ───────────────────────────────────────────────────────

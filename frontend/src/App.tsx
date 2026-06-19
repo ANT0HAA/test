@@ -6,6 +6,7 @@ import ProjectBar from './components/ProjectBar'
 import {
   fetchAgents, useChatSocket, clearSession, fetchLlmStatus, type LlmStatus,
   fetchProjects, createProject, fetchProjectDetail,
+  exportDocument, type ExportDocType,
 } from './api/client'
 import type { Agent, ChatMessage, Project } from './types'
 
@@ -19,6 +20,7 @@ export default function App() {
   const [llm, setLlm] = useState<LlmStatus | null>(null)
   const [projects, setProjects] = useState<Project[]>([])
   const [activeProjectId, setActiveProjectId] = useState<string | null>(null)
+  const [exporting, setExporting] = useState(false)
 
   // Ref to the id of the currently-streaming assistant message
   const streamingId = useRef<string | null>(null)
@@ -160,6 +162,18 @@ export default function App() {
     setMessages([])
   }
 
+  const handleExport = async (docType: ExportDocType) => {
+    if (!activeProjectId || exporting) return
+    setExporting(true)
+    try {
+      await exportDocument(activeProjectId, docType)
+    } catch (e) {
+      handleError(e instanceof Error ? e.message : 'Ошибка экспорта')
+    } finally {
+      setExporting(false)
+    }
+  }
+
   return (
     <div className="flex h-full">
       <Sidebar
@@ -188,10 +202,12 @@ export default function App() {
           connected={connected}
           busy={busy}
           modelLabel={llm?.model}
+          exporting={exporting}
           onInputChange={setInput}
           onSend={handleSend}
           onOpenUpload={() => setShowUpload(true)}
           onClear={handleClear}
+          onExport={handleExport}
         />
       </div>
       {showUpload && (

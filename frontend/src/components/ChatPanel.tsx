@@ -1,6 +1,7 @@
-import { useEffect, useRef } from 'react'
-import { Send, Upload, Trash2, CircleDot } from 'lucide-react'
+import { useEffect, useRef, useState } from 'react'
+import { Send, Upload, Trash2, CircleDot, FileDown } from 'lucide-react'
 import type { Agent, ChatMessage } from '../types'
+import type { ExportDocType } from '../api/client'
 
 interface Props {
   agents: Agent[]
@@ -10,17 +11,26 @@ interface Props {
   connected: boolean
   busy: boolean
   modelLabel?: string
+  exporting?: boolean
   onInputChange: (v: string) => void
   onSend: () => void
   onOpenUpload: () => void
   onClear: () => void
+  onExport: (docType: ExportDocType) => void
 }
 
+const EXPORT_OPTIONS: { type: ExportDocType; label: string }[] = [
+  { type: 'docx', label: 'Пояснительная записка (DOCX)' },
+  { type: 'xlsx', label: 'Ведомость оборудования (XLSX)' },
+  { type: 'pdf', label: 'Сводный отчёт (PDF)' },
+]
+
 export default function ChatPanel({
-  agents, selectedAgent, messages, input, connected, busy, modelLabel,
-  onInputChange, onSend, onOpenUpload, onClear,
+  agents, selectedAgent, messages, input, connected, busy, modelLabel, exporting,
+  onInputChange, onSend, onOpenUpload, onClear, onExport,
 }: Props) {
   const scrollRef = useRef<HTMLDivElement>(null)
+  const [exportOpen, setExportOpen] = useState(false)
   const agentMap = Object.fromEntries(agents.map((a) => [a.id, a]))
   const current = agentMap[selectedAgent]
 
@@ -66,6 +76,38 @@ export default function ChatPanel({
             />
             {modelLabel ?? (connected ? 'онлайн' : 'оффлайн')}
           </span>
+          <div className="relative">
+            <button
+              onClick={() => setExportOpen((v) => !v)}
+              disabled={exporting}
+              className="p-2 rounded-lg hover:bg-ink-600 text-muted hover:text-gray-200 transition-colors disabled:opacity-40"
+              title="Сформировать документ"
+            >
+              <FileDown size={16} className={exporting ? 'animate-pulse' : ''} />
+            </button>
+            {exportOpen && (
+              <>
+                <div
+                  className="fixed inset-0 z-10"
+                  onClick={() => setExportOpen(false)}
+                />
+                <div className="absolute right-0 mt-1 z-20 w-64 bg-ink-800 border border-ink-500 rounded-xl shadow-xl py-1">
+                  {EXPORT_OPTIONS.map((opt) => (
+                    <button
+                      key={opt.type}
+                      onClick={() => {
+                        setExportOpen(false)
+                        onExport(opt.type)
+                      }}
+                      className="w-full text-left px-4 py-2 text-[13px] text-gray-200 hover:bg-ink-600 transition-colors"
+                    >
+                      {opt.label}
+                    </button>
+                  ))}
+                </div>
+              </>
+            )}
+          </div>
           <button
             onClick={onOpenUpload}
             className="p-2 rounded-lg hover:bg-ink-600 text-muted hover:text-gray-200 transition-colors"
