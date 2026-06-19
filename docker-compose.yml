@@ -1,0 +1,66 @@
+version: "3.9"
+
+services:
+  ollama:
+    image: ollama/ollama:latest
+    ports:
+      - "11434:11434"
+    volumes:
+      - ./data/ollama:/root/.ollama
+    restart: unless-stopped
+    # Раскомментируйте для использования GPU (нужен NVIDIA Container Toolkit):
+    # deploy:
+    #   resources:
+    #     reservations:
+    #       devices:
+    #         - driver: nvidia
+    #           count: all
+    #           capabilities: [gpu]
+
+  postgres:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_USER: bureau
+      POSTGRES_PASSWORD: bureau
+      POSTGRES_DB: bureau
+    ports:
+      - "5432:5432"
+    volumes:
+      - ./data/postgres:/var/lib/postgresql/data
+    restart: unless-stopped
+
+  backend:
+    build: ./backend
+    ports:
+      - "8000:8000"
+    env_file: .env
+    environment:
+      # внутри сети compose Ollama и Postgres доступны по имени сервиса
+      OLLAMA_BASE_URL: http://ollama:11434
+      DATABASE_URL: postgresql+asyncpg://bureau:bureau@postgres:5432/bureau
+    volumes:
+      - ./data/chroma:/app/chroma_data
+      - ./data/uploads:/app/uploads
+    depends_on:
+      - ollama
+      - postgres
+    restart: unless-stopped
+
+  frontend:
+    build: ./frontend
+    ports:
+      - "3000:80"
+    depends_on:
+      - backend
+    restart: unless-stopped
+
+# ── Первый запуск ──────────────────────────────────────────
+# 1) docker compose up -d ollama postgres
+# 2) docker compose exec ollama ollama pull qwen3:235b   (или меньшую версию)
+# 3) docker compose up --build
+#
+# Для разработки без Docker:
+#   Ollama:   ollama serve   и   ollama pull qwen3:235b
+#   Postgres: поднять локально и указать DATABASE_URL в .env
+#   Backend:  cd backend && uvicorn main:app --reload --port 8000
+#   Frontend: cd frontend && npm run dev
