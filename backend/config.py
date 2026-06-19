@@ -27,6 +27,9 @@ class Settings(BaseSettings):
     # Ollama
     ollama_base_url: str = "http://localhost:11434"
 
+    # Коннектор Компас-3D (отдельный Windows-сервис; может быть недоступен)
+    kompas_connector_url: str = "http://localhost:8100"
+
     # Anthropic (опционально, если переключиться обратно)
     anthropic_api_key: str = ""
 

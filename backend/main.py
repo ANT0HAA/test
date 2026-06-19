@@ -30,7 +30,7 @@ from knowledge.chroma import add_file, list_collections
 from models.schemas import (
     UploadResponse, AgentInfo, HealthResponse,
     ProjectCreate, ProjectInfo, ProjectDetail, ProjectMessageInfo, MemoryNoteCreate,
-    ExportRequest,
+    ExportRequest, KompasGenerateRequest,
 )
 from storage import db as storage
 from export import build_document
@@ -410,6 +410,73 @@ async def export_document(payload: ExportRequest):
         "Content-Disposition": f"attachment; filename=\"{quoted}\"; filename*=UTF-8''{quoted}"
     }
     return Response(content=content, media_type=mime, headers=headers)
+
+
+# ─── REST: интеграция с Компас-3D (прокси к kompas-connector) ──────────
+
+_KOMPAS_DOWN = (
+    "Коннектор Компас-3D недоступен. Запустите сервис kompas-connector "
+    "на Windows-машине с установленным Компас-3D (см. kompas-connector/README.md). "
+    "Остальная платформа работает без него."
+)
+
+
+@app.get("/api/kompas/status")
+async def kompas_status():
+    """Доступность коннектора Компас-3D. Не падает, если коннектор не запущен."""
+    import httpx
+    url = settings.kompas_connector_url.rstrip("/")
+    try:
+        async with httpx.AsyncClient(timeout=3.0) as client:
+            r = await client.get(f"{url}/health")
+            r.raise_for_status()
+            data = r.json()
+        return {"connector_up": True, **data}
+    except Exception as e:
+        return {"connector_up": False, "kompas_available": False, "detail": _KOMPAS_DOWN, "error": str(e)}
+
+
+@app.post("/api/kompas/read")
+async def kompas_read(file: UploadFile = File(...)):
+    """Проксировать разбор чертежа .cdw/.frw в коннектор."""
+    import httpx
+    url = settings.kompas_connector_url.rstrip("/")
+    content = await file.read()
+    files = {"file": (file.filename or "drawing.cdw", content,
+                      file.content_type or "application/octet-stream")}
+    try:
+        async with httpx.AsyncClient(timeout=120.0) as client:
+            r = await client.post(f"{url}/read", files=files)
+    except Exception:
+        raise HTTPException(status_code=503, detail=_KOMPAS_DOWN)
+    if r.status_code >= 400:
+        raise HTTPException(status_code=r.status_code,
+                            detail=_connector_error(r))
+    return r.json()
+
+
+@app.post("/api/kompas/generate")
+async def kompas_generate(payload: KompasGenerateRequest):
+    """Проксировать генерацию чертежа в коннектор и вернуть .cdw."""
+    import httpx
+    url = settings.kompas_connector_url.rstrip("/")
+    try:
+        async with httpx.AsyncClient(timeout=120.0) as client:
+            r = await client.post(f"{url}/generate", json=payload.model_dump())
+    except Exception:
+        raise HTTPException(status_code=503, detail=_KOMPAS_DOWN)
+    if r.status_code >= 400:
+        raise HTTPException(status_code=r.status_code, detail=_connector_error(r))
+    headers = {"Content-Disposition": 'attachment; filename="drawing.cdw"'}
+    return Response(content=r.content, media_type="application/octet-stream", headers=headers)
+
+
+def _connector_error(resp) -> str:
+    """Достать сообщение об ошибке из ответа коннектора."""
+    try:
+        return resp.json().get("detail", resp.text)
+    except Exception:
+        return resp.text or "Ошибка коннектора Компас-3D"
 
 
 # ─── Entrypoint ───────────────────────────────────────────────────────

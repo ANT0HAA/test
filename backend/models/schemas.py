@@ -96,3 +96,14 @@ class MemoryNoteCreate(BaseModel):
 class ExportRequest(BaseModel):
     project_id: str
     doc_type: Literal["docx", "xlsx", "pdf"]
+
+
+# ─── Интеграция с Компас-3D (проксируется в kompas-connector) ──────────
+
+class KompasGenerateRequest(BaseModel):
+    kind: Literal["foundation", "rectangle"] = "foundation"
+    width_mm: float = 6000.0
+    length_mm: float = 12000.0
+    title: str = "План фундамента"
+    project: str = ""
+    designer: str = "AI Конструкторское бюро"
