@@ -70,11 +70,16 @@ export default function App() {
   // ─── WebSocket callbacks ─────────────────────────────────────────
 
   const handleAgentStart = useCallback((agent: string, displayName: string) => {
-    // New assistant message begins (covers delegation: agent may differ from selected)
+    // New assistant message begins (covers delegation and multi-agent plans:
+    // each agent gets its own bubble). Finalize the previous streaming bubble
+    // so the blinking cursor only shows on the currently active agent.
+    const prevId = streamingId.current
     const id = crypto.randomUUID()
     streamingId.current = id
     setMessages((prev) => [
-      ...prev,
+      ...prev.map((m) =>
+        m.id === prevId ? { ...m, streaming: false } : m
+      ),
       {
         id,
         role: 'assistant',

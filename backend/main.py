@@ -22,7 +22,7 @@ from langchain_core.messages import HumanMessage
 
 from config import settings
 from agents.definitions import AGENTS
-from graph.graph import get_graph, BureauState
+from graph.graph import get_graph, BureauState, GRAPH_RECURSION_LIMIT
 from knowledge.chroma import add_file, list_collections
 from models.schemas import (
     UploadResponse, AgentInfo, HealthResponse,
@@ -32,6 +32,21 @@ from storage import db as storage
 
 logging.basicConfig(level=logging.INFO)
 log = logging.getLogger(__name__)
+
+
+def _node_to_agent(node: str) -> str | None:
+    """
+    Сопоставляет узел графа с агентом для стриминга. Управляющие узлы
+    (роутер/диспетчер) возвращают None — у них нет «пузыря» в чате.
+    """
+    if node == "orchestrator_respond":
+        return "orchestrator"
+    if node == "norm_control_review":
+        return "norm_control"
+    if node in AGENTS:
+        return node
+    return None  # orchestrator_router, dispatch и прочие служебные
+
 
 # ─── App setup ────────────────────────────────────────────────────────
 
@@ -142,48 +157,68 @@ async def websocket_chat(websocket: WebSocket, project_id: str):
                 "delegated_task": "",
                 "action": "",
                 "project_id": project_id,
+                "plan": [],
+                "step": 0,
+                "iteration": 0,
+                "review": False,
+                "review_feedback": "",
+                "done": False,
             }
 
-            # Стримим ответ через astream_events
-            full_response = ""
-            current_agent = selected_agent
+            # Стримим ответ через astream_events.
+            # У каждого агента — свой «пузырь»; в межагентном режиме их несколько
+            # (включая итерации доработки). Сохраняем все по завершении.
+            bubbles: list[dict] = []      # [{"agent": id, "content": str}, ...]
+            current: dict | None = None   # текущий пузырь
 
             try:
-                async for event in graph.astream_events(input_state, version="v2"):
+                async for event in graph.astream_events(
+                    input_state,
+                    version="v2",
+                    config={"recursion_limit": GRAPH_RECURSION_LIMIT},
+                ):
                     kind = event["event"]
                     meta = event.get("metadata", {})
                     node = meta.get("langgraph_node", "")
+                    agent = _node_to_agent(node)
+                    if agent is None:
+                        continue  # служебные узлы (роутер/диспетчер) не стримим
 
-                    # Сигнал о начале ответа агента
-                    if kind == "on_node_start" and node not in ("orchestrator_router",):
-                        current_agent = node.replace("_respond", "")
-                        agent_info = AGENTS.get(current_agent, {})
+                    # Начало ответа агента — новый пузырь
+                    if kind == "on_chat_model_start":
+                        current = {"agent": agent, "content": ""}
+                        bubbles.append(current)
+                        agent_info = AGENTS.get(agent, {})
                         await websocket.send_text(json.dumps({
                             "type": "agent_start",
-                            "agent": current_agent,
-                            "display_name": agent_info.get("display_name", current_agent),
+                            "agent": agent,
+                            "display_name": agent_info.get("display_name", agent),
                         }, ensure_ascii=False))
 
-                    # Стриминг токенов (только не из роутера)
-                    elif kind == "on_chat_model_stream" and node != "orchestrator_router":
+                    # Токены текущего агента
+                    elif kind == "on_chat_model_stream" and current is not None:
                         chunk = event["data"].get("chunk")
                         if chunk and hasattr(chunk, "content") and chunk.content:
-                            full_response += chunk.content
+                            current["content"] += chunk.content
                             await websocket.send_text(json.dumps({
                                 "type": "token",
                                 "content": chunk.content,
-                                "agent": node.replace("_respond", ""),
+                                "agent": agent,
                             }, ensure_ascii=False))
 
+                # Сохраняем в персистентную историю проекта ДО сигнала «done»,
+                # чтобы запись не потерялась, если клиент отключится сразу после done.
+                await storage.add_message(project_id, "human", selected_agent, user_message)
+                for b in bubbles:
+                    if b["content"].strip():
+                        await storage.add_message(project_id, "ai", b["agent"], b["content"])
+
                 # Сигнал конца
+                last_agent = bubbles[-1]["agent"] if bubbles else selected_agent
                 await websocket.send_text(json.dumps({
                     "type": "done",
-                    "agent": current_agent,
+                    "agent": last_agent,
                 }, ensure_ascii=False))
-
-                # Сохраняем в персистентную историю проекта
-                await storage.add_message(project_id, "human", selected_agent, user_message)
-                await storage.add_message(project_id, "ai", current_agent, full_response)
 
             except Exception as e:
                 log.exception("Graph error in project %s", project_id)

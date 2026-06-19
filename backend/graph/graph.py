@@ -1,13 +1,20 @@
 """
 Мультиагентный граф на LangGraph.
 
-Архитектура:
-  orchestrator_router → (если прямой вызов) → agent_node → END
-                      → (если делегирование) → agent_node → END
-                      → (если отвечает сам)  → orchestrator_respond → END
+Архитектура (Фаза 2 — межагентное взаимодействие):
+  orchestrator_router
+    ├─ прямой агент      → dispatch → <specialist> → dispatch → END
+    ├─ план (несколько)  → dispatch → <s1> → dispatch → <s2> → ... → norm_control_review
+    │                         └─ при замечаниях: возврат на доработку (цикл, ≤ MAX_ITERATIONS)
+    └─ отвечает сам       → orchestrator_respond → END
 
-Стриминг: токены идут только из orchestrator_respond или agent_node,
-          НЕ из orchestrator_router (там structured output без стриминга).
+Узел `dispatch` — маршрутизатор без LLM: по плану направляет к следующему
+специалисту, по исчерпании плана — к нормоконтролёру (если нужен ревью), иначе END.
+
+Стриминг: токены идут только из узлов-агентов (specialist / orchestrator_respond /
+          norm_control_review). orchestrator_router и dispatch модель не стримят.
+Защита от зацикливания: лимит итераций доработки (MAX_ITERATIONS) +
+жёсткий лимит шагов графа (GRAPH_RECURSION_LIMIT, задаётся при вызове в main.py).
 """
 from typing import TypedDict, Annotated, Literal
 from langchain_core.messages import BaseMessage, SystemMessage, HumanMessage, AIMessage
@@ -22,23 +29,48 @@ from knowledge.chroma import search
 from storage.db import get_memory
 
 
+# ─── Константы межагентного режима ─────────────────────────────────────
+
+MAX_ITERATIONS = 2        # максимум итераций доработки по замечаниям нормоконтролёра
+MAX_PLAN_AGENTS = 5       # ограничение размера плана (защита от раздувания)
+GRAPH_RECURSION_LIMIT = 50  # жёсткий лимит шагов графа (передаётся в astream_events)
+
+# Вердикт нормоконтролёра — машиночитаемые маркеры в конце его ответа
+VERDICT_REWORK = "НА ДОРАБОТКУ"
+VERDICT_OK = "СОГЛАСОВАНО"
+
+
 # ─── State ────────────────────────────────────────────────────────────
 
 class BureauState(TypedDict):
     messages: Annotated[list[BaseMessage], add_messages]
     direct_agent: str | None   # Если пользователь выбрал конкретного агента
     active_agent: str          # Кто сейчас отвечает
-    delegated_task: str        # Задача, переданная специалисту
-    action: str                # "delegate" | "respond_self" | "done"
+    delegated_task: str        # Задача последнего шага (для обратной совместимости)
+    action: str                # "execute" | "respond_self"
     project_id: str            # Проект, в рамках которого идёт диалог (память по проекту)
+
+    # Межагентное взаимодействие
+    plan: list[dict]           # План работ: [{"agent": id, "task": str}, ...]
+    step: int                  # Индекс текущего шага плана
+    iteration: int             # Счётчик итераций доработки
+    review: bool               # Нужен ли финальный нормоконтроль
+    review_feedback: str       # Замечания нормоконтролёра для доработки
+    done: bool                 # Граф завершил работу (после ревью)
 
 
 async def _memory_context(project_id: str, agent_id: str) -> str:
     """Запомненные ранее решения проекта для данного агента (для подмеса в системный промпт)."""
+    if not project_id:
+        return ""
     rows = await get_memory(project_id, agent_id)
     if not rows:
         return ""
     return "\n".join(f"• {row.value}" for row in rows)
+
+
+def _last_human(messages: list[BaseMessage]) -> str:
+    return next((m.content for m in reversed(messages) if isinstance(m, HumanMessage)), "")
 
 
 # ─── LLM factory ──────────────────────────────────────────────────────
@@ -73,7 +105,7 @@ def _llm(streaming: bool = False) -> BaseChatModel:
     raise ValueError(f"Неизвестный LLM_PROVIDER: {settings.llm_provider}")
 
 
-# ─── Structured output for routing decision ────────────────────────────
+# ─── Structured output для планирования ────────────────────────────────
 
 AGENT_IDS = Literal[
     "technologist", "builder", "mechanic", "electrician",
@@ -81,15 +113,20 @@ AGENT_IDS = Literal[
 ]
 
 
-class RoutingDecision(BaseModel):
-    """Решение оркестратора: отвечать самому или делегировать."""
+class PlanStep(BaseModel):
+    """Один шаг плана: какому специалисту какую подзадачу поручить."""
+    agent: AGENT_IDS
+    task: str
+
+
+class PlanDecision(BaseModel):
+    """Решение оркестратора: ответить самому или составить план из специалистов."""
     reasoning: str
     action: Literal["answer_self", "delegate"]
-    next_agent: AGENT_IDS | None = None
-    task_for_agent: str = ""
+    plan: list[PlanStep] = []
 
 
-# ─── Keyword fallback for routing (если structured output не сработал) ─
+# ─── Keyword fallback (если structured output не сработал на локальной модели) ─
 
 _ROUTING_KEYWORDS: dict[str, list[str]] = {
     "technologist": ["глин", "обжиг", "сушк", "масс", "шихт", "формов", "техпроцесс",
@@ -121,79 +158,120 @@ def _keyword_route(text: str) -> str | None:
     return best if scores[best] > 0 else None
 
 
-# ─── Orchestrator router (НЕ стримит) ─────────────────────────────────
+def _sanitize_plan(steps: list[PlanStep], fallback_task: str) -> list[dict]:
+    """
+    Приводит план к рабочему виду: убирает нормоконтролёра (он работает как
+    финальный ревьюер автоматически), отбрасывает неизвестных агентов,
+    ограничивает длину MAX_PLAN_AGENTS.
+    """
+    plan: list[dict] = []
+    seen: set[str] = set()
+    for s in steps:
+        if s.agent == "norm_control" or s.agent not in AGENTS:
+            continue
+        if s.agent in seen:
+            continue  # один агент — один шаг в плане
+        seen.add(s.agent)
+        plan.append({"agent": s.agent, "task": s.task.strip() or fallback_task})
+        if len(plan) >= MAX_PLAN_AGENTS:
+            break
+    return plan
+
+
+# ─── Базовое начальное состояние межагентных полей ─────────────────────
+
+def _base_fields() -> dict:
+    return {
+        "plan": [],
+        "step": 0,
+        "iteration": 0,
+        "review": False,
+        "review_feedback": "",
+        "done": False,
+    }
+
+
+# ─── Orchestrator router / planner (НЕ стримит) ───────────────────────
 
 async def orchestrator_router(state: BureauState) -> dict:
     """
-    Если выбран прямой агент — сразу делегируем ему без вызова LLM.
-    Иначе — спрашиваем LLM куда маршрутизировать (structured output),
-    с откатом на ключевые слова, если локальная модель не вернула валидный JSON.
+    Прямой агент → план из одного шага, без ревью (поведение прямого диалога).
+    Иначе оркестратор формирует план из нескольких специалистов (structured output),
+    с откатом на ключевые слова (single-agent, без ревью), если модель не вернула план.
     """
+    user_text = _last_human(state["messages"])
+
     direct = state.get("direct_agent")
     if direct and direct != "orchestrator":
-        last_msg = next(
-            (m.content for m in reversed(state["messages"])
-             if isinstance(m, HumanMessage)), ""
-        )
         return {
+            **_base_fields(),
             "active_agent": direct,
-            "delegated_task": last_msg,
-            "action": "delegate",
+            "delegated_task": user_text,
+            "action": "execute",
+            "plan": [{"agent": direct, "task": user_text}],
+            "review": False,
         }
-
-    user_text = next(
-        (m.content for m in reversed(state["messages"])
-         if isinstance(m, HumanMessage)), ""
-    )
 
     agent_list = "\n".join(
         f"• {k}: {v['display_name']} — {v['description']}"
         for k, v in AGENTS.items()
-        if k != "orchestrator"
+        if k not in ("orchestrator", "norm_control")
     )
     system = (
         AGENTS["orchestrator"]["system_prompt"]
         + f"\n\nСписок специалистов:\n{agent_list}"
-        + "\n\nОтветь СТРОГО JSON-объектом RoutingDecision без пояснений."
+        + "\n\nРазбей задачу контролёра проекта на подзадачи и распредели их между "
+          "специалистами (от 1 до 5 шагов, по одному на агента). Нормоконтролёра "
+          "НЕ включай — он проверит результат автоматически. Если задача простая "
+          "или общая — верни action='answer_self' с пустым планом."
+        + "\n\nОтветь СТРОГО JSON-объектом PlanDecision без пояснений."
     )
     messages = [SystemMessage(content=system)] + list(state["messages"])
 
-    # Пытаемся получить structured output. На локальных моделях это может
+    # Пытаемся получить план. На локальных моделях structured output может
     # не сработать — тогда откатываемся на эвристику по ключевым словам.
     try:
-        llm = _llm(streaming=False).with_structured_output(RoutingDecision)
-        decision: RoutingDecision = await llm.ainvoke(messages)
+        llm = _llm(streaming=False).with_structured_output(PlanDecision)
+        decision: PlanDecision = await llm.ainvoke(messages)
 
-        if decision.action == "delegate" and decision.next_agent:
-            return {
-                "active_agent": decision.next_agent,
-                "delegated_task": decision.task_for_agent or user_text,
-                "action": "delegate",
-            }
-        return {"active_agent": "orchestrator", "action": "respond_self"}
+        if decision.action == "delegate":
+            plan = _sanitize_plan(decision.plan, user_text)
+            if plan:
+                return {
+                    **_base_fields(),
+                    "active_agent": plan[0]["agent"],
+                    "delegated_task": plan[0]["task"],
+                    "action": "execute",
+                    "plan": plan,
+                    "review": True,  # после специалистов — нормоконтроль
+                }
+        return {**_base_fields(), "active_agent": "orchestrator", "action": "respond_self"}
 
     except Exception:
-        # Откат: ключевые слова. Если ничего не совпало — отвечает оркестратор.
+        # Откат: один агент по ключевым словам, без ревью (деградация на слабой модели).
         agent = _keyword_route(user_text)
         if agent:
             return {
+                **_base_fields(),
                 "active_agent": agent,
                 "delegated_task": user_text,
-                "action": "delegate",
+                "action": "execute",
+                "plan": [{"agent": agent, "task": user_text}],
+                "review": False,
             }
-        return {"active_agent": "orchestrator", "action": "respond_self"}
+        return {**_base_fields(), "active_agent": "orchestrator", "action": "respond_self"}
 
 
 # ─── Orchestrator direct response (стримит) ───────────────────────────
 
 async def orchestrator_respond(state: BureauState) -> dict:
     """Оркестратор отвечает пользователю напрямую."""
-    kb_context = search(state["messages"][-1].content, "orchestrator")
+    kb_context = search(_last_human(state["messages"]), "orchestrator")
     system = AGENTS["orchestrator"]["system_prompt"]
     if kb_context:
         system += f"\n\n--- Контекст из базы знаний ---\n{kb_context}"
 
-    memory_context = await _memory_context(state["project_id"], "orchestrator")
+    memory_context = await _memory_context(state.get("project_id", ""), "orchestrator")
     if memory_context:
         system += f"\n\n--- Запомненные решения по проекту ---\n{memory_context}"
 
@@ -202,7 +280,8 @@ async def orchestrator_respond(state: BureauState) -> dict:
 
     return {
         "messages": [AIMessage(content=response.content, name="orchestrator")],
-        "action": "done",
+        "active_agent": "orchestrator",
+        "done": True,
     }
 
 
@@ -213,45 +292,128 @@ def _make_specialist(agent_id: str):
 
     async def specialist_node(state: BureauState) -> dict:
         agent_def = AGENTS[agent_id]
+        plan = state.get("plan", [])
+        step = state.get("step", 0)
 
-        # Определяем запрос для поиска по базе знаний
-        query = state.get("delegated_task") or state["messages"][-1].content
+        # Задача текущего шага плана (или последний вопрос пользователя)
+        task = plan[step]["task"] if 0 <= step < len(plan) else (
+            state.get("delegated_task") or _last_human(state["messages"])
+        )
 
-        # Ищем в базе знаний агента
-        kb_context = search(query, agent_id)
+        # База знаний агента
+        kb_context = search(task, agent_id)
         system = agent_def["system_prompt"]
         if kb_context:
             system += f"\n\n--- Контекст из базы знаний ---\n{kb_context}"
 
-        memory_context = await _memory_context(state["project_id"], agent_id)
+        # Память проекта
+        memory_context = await _memory_context(state.get("project_id", ""), agent_id)
         if memory_context:
             system += f"\n\n--- Запомненные решения по проекту ---\n{memory_context}"
 
-        # Если задача пришла от оркестратора — добавляем её явно
         messages = [SystemMessage(content=system)] + list(state["messages"])
-        if state.get("delegated_task") and state.get("direct_agent") != agent_id:
-            messages.append(
-                HumanMessage(content=f"Задача от Главного конструктора: {state['delegated_task']}")
-            )
+
+        # Делегированная задача (не для прямого диалога с этим же агентом)
+        if state.get("direct_agent") != agent_id:
+            framing = f"Задача от Главного конструктора: {task}"
+            feedback = state.get("review_feedback", "")
+            if feedback:
+                framing += (
+                    "\n\nПо предыдущей версии есть замечания нормоконтролёра — "
+                    f"учти их при доработке:\n{feedback}"
+                )
+            messages.append(HumanMessage(content=framing))
 
         response = await _llm(streaming=True).ainvoke(messages)
         return {
             "messages": [AIMessage(content=response.content, name=agent_id)],
             "active_agent": agent_id,
-            "action": "done",
+            "step": step + 1,
         }
 
     specialist_node.__name__ = agent_id  # для LangGraph metadata
     return specialist_node
 
 
+# ─── Norm control review (стримит) ────────────────────────────────────
+
+async def norm_control_review(state: BureauState) -> dict:
+    """
+    Нормоконтролёр проверяет накопленные результаты специалистов.
+    В конце ответа ставит машиночитаемый вердикт. При замечаниях и наличии
+    лимита итераций — отправляет план на доработку, иначе завершает работу.
+    """
+    agent_def = AGENTS["norm_control"]
+    system = (
+        agent_def["system_prompt"]
+        + "\n\nСейчас твоя роль — финальный нормоконтроль результатов специалистов выше "
+          "по текущему диалогу. Проверь их на соответствие нормам и взаимную согласованность. "
+          "Дай краткое заключение по существу.\n"
+          f"В САМОМ КОНЦЕ ответа поставь ОТДЕЛЬНОЙ строкой ровно один из вердиктов:\n"
+          f"«ВЕРДИКТ: {VERDICT_OK}» — если замечаний, требующих исправления, нет;\n"
+          f"«ВЕРДИКТ: {VERDICT_REWORK}» — если есть замечания, которые специалисты должны устранить."
+    )
+
+    kb_context = search(_last_human(state["messages"]), "norm_control")
+    if kb_context:
+        system += f"\n\n--- Контекст из базы знаний ---\n{kb_context}"
+    memory_context = await _memory_context(state.get("project_id", ""), "norm_control")
+    if memory_context:
+        system += f"\n\n--- Запомненные решения по проекту ---\n{memory_context}"
+
+    messages = [SystemMessage(content=system)] + list(state["messages"]) + [
+        HumanMessage(content="Проверь результаты работы специалистов и вынеси вердикт.")
+    ]
+    response = await _llm(streaming=True).ainvoke(messages)
+    text = response.content
+    upper = text.upper()
+
+    iteration = state.get("iteration", 0)
+    # Доработка только если явно «НА ДОРАБОТКУ» и не исчерпан лимит итераций.
+    needs_rework = (VERDICT_REWORK in upper) and (iteration < MAX_ITERATIONS)
+
+    out: dict = {
+        "messages": [AIMessage(content=text, name="norm_control")],
+        "active_agent": "norm_control",
+    }
+    if needs_rework:
+        out.update({
+            "iteration": iteration + 1,
+            "step": 0,                 # перезапускаем план на доработку
+            "review_feedback": text,
+            "done": False,
+        })
+    else:
+        out["done"] = True
+    return out
+
+
+# ─── Dispatch (НЕ стримит) ─────────────────────────────────────────────
+
+async def dispatch(state: BureauState) -> dict:
+    """Узел-проход: вся маршрутизация в `_route_from_dispatch`."""
+    return {}
+
+
 # ─── Routing logic ────────────────────────────────────────────────────
 
 def _route_after_router(state: BureauState) -> str:
-    action = state.get("action", "respond_self")
-    if action == "delegate":
-        return state.get("active_agent", "orchestrator_respond")
+    if state.get("action") == "execute":
+        return "dispatch"
     return "orchestrator_respond"
+
+
+def _route_from_dispatch(state: BureauState) -> str:
+    """Следующий шаг: специалист по плану → нормоконтроль → END."""
+    if state.get("done"):
+        return END
+    plan = state.get("plan", [])
+    step = state.get("step", 0)
+    if step < len(plan):
+        return plan[step]["agent"]
+    if state.get("review"):
+        return "norm_control_review"
+    return END
 
 
 # ─── Build & compile graph ────────────────────────────────────────────
@@ -259,28 +421,38 @@ def _route_after_router(state: BureauState) -> str:
 def build_graph():
     g = StateGraph(BureauState)
 
-    # Ноды
     g.add_node("orchestrator_router", orchestrator_router)
     g.add_node("orchestrator_respond", orchestrator_respond)
+    g.add_node("dispatch", dispatch)
+    g.add_node("norm_control_review", norm_control_review)
 
     specialist_ids = [k for k in AGENTS if k != "orchestrator"]
     for sid in specialist_ids:
         g.add_node(sid, _make_specialist(sid))
 
-    # Точка входа
     g.set_entry_point("orchestrator_router")
 
-    # Условный переход из роутера
+    # Из роутера — либо собственный ответ, либо в диспетчер плана
     g.add_conditional_edges(
         "orchestrator_router",
         _route_after_router,
-        {sid: sid for sid in specialist_ids} | {"orchestrator_respond": "orchestrator_respond"},
+        {"dispatch": "dispatch", "orchestrator_respond": "orchestrator_respond"},
     )
 
-    # Все конечные ноды → END
-    g.add_edge("orchestrator_respond", END)
+    # Диспетчер: к специалисту по плану / к нормоконтролю / END
+    g.add_conditional_edges(
+        "dispatch",
+        _route_from_dispatch,
+        {sid: sid for sid in specialist_ids}
+        | {"norm_control_review": "norm_control_review", END: END},
+    )
+
+    # Специалисты и ревьюер возвращаются в диспетчер (он решает, что дальше)
     for sid in specialist_ids:
-        g.add_edge(sid, END)
+        g.add_edge(sid, "dispatch")
+    g.add_edge("norm_control_review", "dispatch")
+
+    g.add_edge("orchestrator_respond", END)
 
     return g.compile()
 
