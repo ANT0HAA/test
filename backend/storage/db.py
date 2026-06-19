@@ -9,7 +9,7 @@ import uuid
 from datetime import datetime, timezone
 
 from langchain_core.messages import BaseMessage, HumanMessage, AIMessage
-from sqlalchemy import String, Text, ForeignKey, select, delete
+from sqlalchemy import String, Text, ForeignKey, DateTime, select, delete
 from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column
 
@@ -26,7 +26,7 @@ class Project(Base):
     id: Mapped[str] = mapped_column(String(36), primary_key=True, default=lambda: str(uuid.uuid4()))
     name: Mapped[str] = mapped_column(String(200))
     industry: Mapped[str] = mapped_column(String(50), default="ceramics")
-    created_at: Mapped[datetime] = mapped_column(default=lambda: datetime.now(timezone.utc))
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=lambda: datetime.now(timezone.utc))
 
 
 class ProjectMessage(Base):
@@ -37,7 +37,7 @@ class ProjectMessage(Base):
     role: Mapped[str] = mapped_column(String(20))  # "human" | "ai"
     agent: Mapped[str] = mapped_column(String(50))
     content: Mapped[str] = mapped_column(Text)
-    created_at: Mapped[datetime] = mapped_column(default=lambda: datetime.now(timezone.utc))
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=lambda: datetime.now(timezone.utc))
 
 
 class ProjectMemory(Base):
@@ -48,7 +48,7 @@ class ProjectMemory(Base):
     agent: Mapped[str] = mapped_column(String(50), index=True)
     key: Mapped[str] = mapped_column(String(100), default="note")
     value: Mapped[str] = mapped_column(Text)
-    created_at: Mapped[datetime] = mapped_column(default=lambda: datetime.now(timezone.utc))
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=lambda: datetime.now(timezone.utc))
 
 
 _engine = create_async_engine(settings.database_url, pool_pre_ping=True)
