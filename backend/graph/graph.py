@@ -92,6 +92,7 @@ def _llm(streaming: bool = False) -> BaseChatModel:
             base_url=settings.ollama_base_url,
             temperature=settings.llm_temperature,
             num_predict=settings.llm_max_tokens,
+            reasoning=settings.llm_reasoning,  # False — отключает «думанье» qwen3
             # streaming у ChatOllama включается на уровне вызова astream/astream_events
         )
 
@@ -106,6 +107,22 @@ def _llm(streaming: bool = False) -> BaseChatModel:
         )
 
     raise ValueError(f"Неизвестный LLM_PROVIDER: {settings.llm_provider}")
+
+
+async def _stream_text(messages: list[BaseMessage]) -> str:
+    """
+    Сгенерировать ответ модели в потоковом режиме и вернуть полный текст.
+
+    Используем `.astream()`, а не `.ainvoke()`: локальные модели (ChatOllama)
+    при `.ainvoke` НЕ выдают пошаговые токены, и `astream_events` не получает
+    `on_chat_model_stream` — в UI ничего не «капает». `.astream` гарантирует
+    потоковую отдачу токенов для обоих провайдеров.
+    """
+    parts: list[str] = []
+    async for chunk in _llm(streaming=True).astream(messages):
+        if chunk.content:
+            parts.append(chunk.content)
+    return "".join(parts)
 
 
 # ─── Structured output для планирования ────────────────────────────────
@@ -264,10 +281,10 @@ async def orchestrator_respond(state: BureauState) -> dict:
         system += f"\n\n--- Запомненные решения по проекту ---\n{memory_context}"
 
     messages = [SystemMessage(content=system)] + list(state["messages"])
-    response = await _llm(streaming=True).ainvoke(messages)
+    content = await _stream_text(messages)
 
     return {
-        "messages": [AIMessage(content=response.content, name="orchestrator")],
+        "messages": [AIMessage(content=content, name="orchestrator")],
         "active_agent": "orchestrator",
         "done": True,
     }
@@ -313,9 +330,9 @@ def _make_specialist(agent_id: str):
                 )
             messages.append(HumanMessage(content=framing))
 
-        response = await _llm(streaming=True).ainvoke(messages)
+        content = await _stream_text(messages)
         return {
-            "messages": [AIMessage(content=response.content, name=agent_id)],
+            "messages": [AIMessage(content=content, name=agent_id)],
             "active_agent": agent_id,
             "step": step + 1,
         }
@@ -354,8 +371,7 @@ async def norm_control_review(state: BureauState) -> dict:
     messages = [SystemMessage(content=system)] + list(state["messages"]) + [
         HumanMessage(content="Проверь результаты работы специалистов и вынеси вердикт.")
     ]
-    response = await _llm(streaming=True).ainvoke(messages)
-    text = response.content
+    text = await _stream_text(messages)
     upper = text.upper()
 
     iteration = state.get("iteration", 0)

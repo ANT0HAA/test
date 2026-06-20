@@ -23,6 +23,9 @@ class Settings(BaseSettings):
     llm_model: str = "qwen3:235b"
     llm_max_tokens: int = 4096
     llm_temperature: float = 0.3
+    # Для reasoning-моделей (qwen3): False — отключить «думанье» (<think>),
+    # прямые ответы без расхода бюджета токенов на рассуждения.
+    llm_reasoning: bool = False
 
     # Ollama
     ollama_base_url: str = "http://localhost:11434"
