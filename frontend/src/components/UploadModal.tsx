@@ -1,16 +1,18 @@
 import { useState, useRef } from 'react'
 import { Upload, X, FileCheck, Loader2 } from 'lucide-react'
-import type { Agent } from '../types'
+import type { Agent, KnowledgeMap } from '../types'
 import { uploadDocument } from '../api/client'
 
 interface Props {
   agents: Agent[]
   defaultAgent: string
   industry: string
+  knowledge?: KnowledgeMap
+  onUploaded?: () => void
   onClose: () => void
 }
 
-export default function UploadModal({ agents, defaultAgent, industry, onClose }: Props) {
+export default function UploadModal({ agents, defaultAgent, industry, knowledge, onUploaded, onClose }: Props) {
   const [agent, setAgent] = useState(defaultAgent)
   const [file, setFile] = useState<File | null>(null)
   const [status, setStatus] = useState<'idle' | 'uploading' | 'done' | 'error'>('idle')
@@ -25,6 +27,7 @@ export default function UploadModal({ agents, defaultAgent, industry, onClose }:
       const res = await uploadDocument(file, agent, industry)
       setStatus('done')
       setMessage(`Добавлено фрагментов: ${res.chunks_added}`)
+      onUploaded?.()
     } catch (e) {
       setStatus('error')
       setMessage(e instanceof Error ? e.message : 'Ошибка загрузки')
@@ -57,6 +60,16 @@ export default function UploadModal({ agents, defaultAgent, industry, onClose }:
                 <option key={a.id} value={a.id}>{a.display_name}</option>
               ))}
             </select>
+            {knowledge?.[agent] && knowledge[agent].chunks > 0 && (
+              <div className="mt-2 text-[11px] text-faint">
+                В базе: {knowledge[agent].chunks} фрагментов из {knowledge[agent].sources.length} файлов
+                <div className="mt-1 max-h-20 overflow-y-auto space-y-0.5">
+                  {knowledge[agent].sources.slice(0, 12).map((s) => (
+                    <div key={s} className="truncate font-mono text-faint">• {s}</div>
+                  ))}
+                </div>
+              </div>
+            )}
           </div>
 
           <div>

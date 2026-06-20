@@ -29,7 +29,7 @@ from agents.definitions import (
     load_customizations, _BUILTIN_INDUSTRIES,
 )
 from graph.graph import get_graph, reset_graph, BureauState, GRAPH_RECURSION_LIMIT
-from knowledge.chroma import add_file, list_collections
+from knowledge.chroma import add_file, list_collections, collection_stats
 from models.schemas import (
     UploadResponse, AgentInfo, HealthResponse,
     ProjectCreate, ProjectInfo, ProjectDetail, ProjectMessageInfo, MemoryNoteCreate,
@@ -290,6 +290,12 @@ async def upload_document(
 async def get_industries():
     """Список отраслей платформы."""
     return list_industries()
+
+
+@app.get("/api/knowledge")
+async def knowledge_stats(industry: str = DEFAULT_INDUSTRY):
+    """База знаний отрасли по агентам: число фрагментов и файлы-источники."""
+    return {aid: collection_stats(aid, industry) for aid in get_agents(industry)}
 
 
 @app.get("/api/agents", response_model=list[AgentInfo])

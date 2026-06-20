@@ -6,10 +6,10 @@ import ProjectBar from './components/ProjectBar'
 import AdminModal from './components/AdminModal'
 import {
   fetchAgents, useChatSocket, clearSession, fetchLlmStatus, type LlmStatus,
-  fetchProjects, createProject, fetchProjectDetail, fetchIndustries,
+  fetchProjects, createProject, fetchProjectDetail, fetchIndustries, fetchKnowledge,
   exportDocument, type ExportDocType,
 } from './api/client'
-import type { Agent, ChatMessage, Industry, Project } from './types'
+import type { Agent, ChatMessage, Industry, KnowledgeMap, Project } from './types'
 
 const DEFAULT_INDUSTRY = 'ceramics'
 
@@ -26,6 +26,7 @@ export default function App() {
   const [industries, setIndustries] = useState<Industry[]>([])
   const [exporting, setExporting] = useState(false)
   const [showAdmin, setShowAdmin] = useState(false)
+  const [knowledge, setKnowledge] = useState<KnowledgeMap>({})
 
   // Ref to the id of the currently-streaming assistant message
   const streamingId = useRef<string | null>(null)
@@ -52,7 +53,7 @@ export default function App() {
       .catch(console.error)
   }, [])
 
-  // Набор агентов зависит от отрасли активного проекта
+  // Набор агентов и статистика базы знаний зависят от отрасли активного проекта
   useEffect(() => {
     fetchAgents(currentIndustry)
       .then((list) => {
@@ -63,7 +64,11 @@ export default function App() {
         )
       })
       .catch(console.error)
+    fetchKnowledge(currentIndustry).then(setKnowledge).catch(console.error)
   }, [currentIndustry])
+
+  const refreshKnowledge = () =>
+    fetchKnowledge(currentIndustry).then(setKnowledge).catch(console.error)
 
   // При переключении проекта — подгружаем его историю чата
   useEffect(() => {
@@ -214,6 +219,7 @@ export default function App() {
         selected={selectedAgent}
         onSelect={setSelectedAgent}
         onOpenAdmin={() => setShowAdmin(true)}
+        knowledge={knowledge}
         industryName={activeProject?.industry === 'ceramics' || !activeProject
           ? 'керамические заводы'
           : industries.find((i) => i.id === currentIndustry)?.display_name ?? currentIndustry}
@@ -253,6 +259,8 @@ export default function App() {
           agents={agents}
           defaultAgent={selectedAgent}
           industry={currentIndustry}
+          knowledge={knowledge}
+          onUploaded={refreshKnowledge}
           onClose={() => setShowUpload(false)}
         />
       )}

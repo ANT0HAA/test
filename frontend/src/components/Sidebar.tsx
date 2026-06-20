@@ -2,7 +2,7 @@ import {
   Network, Flame, Building2, Settings, Zap, Cpu,
   ClipboardCheck, Calculator, FileText, SlidersHorizontal, type LucideIcon,
 } from 'lucide-react'
-import type { Agent } from '../types'
+import type { Agent, KnowledgeMap } from '../types'
 
 const ICONS: Record<string, LucideIcon> = {
   sitemap: Network,
@@ -22,9 +22,10 @@ interface Props {
   onSelect: (id: string) => void
   onOpenAdmin?: () => void
   industryName?: string
+  knowledge?: KnowledgeMap
 }
 
-export default function Sidebar({ agents, selected, onSelect, onOpenAdmin, industryName }: Props) {
+export default function Sidebar({ agents, selected, onSelect, onOpenAdmin, industryName, knowledge }: Props) {
   const orchestrator = agents.find((a) => a.id === 'orchestrator')
   const specialists = agents.filter((a) => a.id !== 'orchestrator')
 
@@ -56,6 +57,7 @@ export default function Sidebar({ agents, selected, onSelect, onOpenAdmin, indus
             agent={orchestrator}
             active={selected === orchestrator.id}
             onClick={() => onSelect(orchestrator.id)}
+            kbChunks={knowledge?.[orchestrator.id]?.chunks ?? 0}
             primary
           />
         )}
@@ -72,6 +74,7 @@ export default function Sidebar({ agents, selected, onSelect, onOpenAdmin, indus
             agent={a}
             active={selected === a.id}
             onClick={() => onSelect(a.id)}
+            kbChunks={knowledge?.[a.id]?.chunks ?? 0}
           />
         ))}
       </nav>
@@ -87,9 +90,9 @@ export default function Sidebar({ agents, selected, onSelect, onOpenAdmin, indus
 }
 
 function AgentButton({
-  agent, active, onClick, primary = false,
+  agent, active, onClick, kbChunks = 0, primary = false,
 }: {
-  agent: Agent; active: boolean; onClick: () => void; primary?: boolean
+  agent: Agent; active: boolean; onClick: () => void; kbChunks?: number; primary?: boolean
 }) {
   const Icon = ICONS[agent.icon] ?? Network
 
@@ -107,11 +110,21 @@ function AgentButton({
         <Icon size={15} strokeWidth={2} />
       </div>
       <div className="min-w-0 flex-1">
-        <div
-          className={`text-[13px] font-medium leading-tight truncate
-            ${active ? 'text-white' : 'text-gray-200'}`}
-        >
-          {agent.display_name}
+        <div className="flex items-center gap-1.5">
+          <div
+            className={`text-[13px] font-medium leading-tight truncate
+              ${active ? 'text-white' : 'text-gray-200'}`}
+          >
+            {agent.display_name}
+          </div>
+          {kbChunks > 0 && (
+            <span
+              className="shrink-0 text-[9px] font-mono px-1.5 py-0.5 rounded-full bg-clay-600/25 text-clay-200"
+              title={`База знаний: ${kbChunks} фрагментов`}
+            >
+              БЗ {kbChunks}
+            </span>
+          )}
         </div>
         <div className="text-[11px] text-faint leading-snug mt-0.5 line-clamp-2">
           {agent.description}

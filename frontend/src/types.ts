@@ -13,6 +13,13 @@ export interface Industry {
   builtin?: boolean
 }
 
+export interface AgentKnowledge {
+  chunks: number
+  sources: string[]
+}
+
+export type KnowledgeMap = Record<string, AgentKnowledge>
+
 export interface AgentDetail {
   id: string
   display_name: string

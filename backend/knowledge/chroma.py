@@ -41,6 +41,21 @@ def list_collections() -> list[str]:
     return [c.name for c in get_client().list_collections()]
 
 
+def collection_stats(agent_name: str, industry: str = DEFAULT_INDUSTRY) -> dict:
+    """Статистика базы знаний агента: число фрагментов и список файлов-источников."""
+    col = get_collection(agent_name, industry)
+    count = col.count()
+    if count == 0:
+        return {"chunks": 0, "sources": []}
+    metas = col.get(include=["metadatas"]).get("metadatas", []) or []
+    sources: list[str] = []
+    for m in metas:
+        src = (m or {}).get("source")
+        if src and src not in sources:
+            sources.append(src)
+    return {"chunks": count, "sources": sorted(sources)}
+
+
 # ─── Chunking ──────────────────────────────────────────────────────────
 
 def _chunk_text(text: str, chunk_size: int = 1000, overlap: int = 150) -> list[str]:

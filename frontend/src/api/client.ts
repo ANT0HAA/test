@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState, useCallback } from 'react'
-import type { Agent, AgentDetail, Industry, Project, ProjectMessageInfo, WsEvent } from '../types'
+import type { Agent, AgentDetail, Industry, KnowledgeMap, Project, ProjectMessageInfo, WsEvent } from '../types'
 
 const API_BASE = '' // proxied via vite
 
@@ -14,6 +14,12 @@ export async function fetchIndustries(): Promise<Industry[]> {
 export async function fetchAgents(industry = 'ceramics'): Promise<Agent[]> {
   const res = await fetch(`${API_BASE}/api/agents?industry=${encodeURIComponent(industry)}`)
   if (!res.ok) throw new Error('Не удалось загрузить агентов')
+  return res.json()
+}
+
+export async function fetchKnowledge(industry = 'ceramics'): Promise<KnowledgeMap> {
+  const res = await fetch(`${API_BASE}/api/knowledge?industry=${encodeURIComponent(industry)}`)
+  if (!res.ok) throw new Error('Не удалось загрузить статистику базы знаний')
   return res.json()
 }
 
