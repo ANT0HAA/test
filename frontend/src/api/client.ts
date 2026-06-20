@@ -114,6 +114,24 @@ export async function uploadDocument(
   return res.json()
 }
 
+/** Загрузить файл в материалы КОНКРЕТНОГО проекта (приоритет над базой знаний). */
+export async function uploadProjectMaterial(
+  projectId: string,
+  file: File
+): Promise<{ ok: boolean; chunks_added: number; filename: string }> {
+  const form = new FormData()
+  form.append('file', file)
+  const res = await fetch(`${API_BASE}/api/projects/${projectId}/materials`, {
+    method: 'POST',
+    body: form,
+  })
+  if (!res.ok) {
+    const err = await res.json().catch(() => ({ detail: 'Ошибка загрузки' }))
+    throw new Error(err.detail || 'Ошибка загрузки')
+  }
+  return res.json()
+}
+
 export async function clearSession(sessionId: string): Promise<void> {
   await fetch(`${API_BASE}/api/session/${sessionId}`, { method: 'DELETE' })
 }

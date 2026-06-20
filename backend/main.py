@@ -58,6 +58,27 @@ def _node_to_agent(node: str) -> str | None:
     return None  # orchestrator_router, dispatch и прочие служебные
 
 
+_THINK_CLOSED = re.compile(r"<think>.*?</think>", re.DOTALL | re.IGNORECASE)
+
+
+def _visible_text(raw: str) -> str:
+    """
+    Убрать «размышления» модели — в UI идёт только ответ.
+    qwen3 через Ollama часто выдаёт рассуждение БЕЗ открывающего <think>, лишь с
+    закрывающим </think> в конце; поэтому всё до последнего </think> отбрасываем.
+    """
+    low = raw.lower()
+    j = low.rfind("</think>")
+    if j != -1:
+        return raw[j + len("</think>"):].lstrip()
+    # парные блоки и незакрытый явный <think>
+    s = _THINK_CLOSED.sub("", raw)
+    i = s.lower().find("<think>")
+    if i != -1:
+        return ""           # рассуждение ещё идёт — пока ничего не показываем
+    return s.lstrip()
+
+
 # ─── App setup ────────────────────────────────────────────────────────
 
 app = FastAPI(
@@ -199,7 +220,7 @@ async def websocket_chat(websocket: WebSocket, project_id: str):
 
                     # Начало ответа агента — новый пузырь
                     if kind == "on_chat_model_start":
-                        current = {"agent": agent, "content": ""}
+                        current = {"agent": agent, "raw": "", "content": ""}
                         bubbles.append(current)
                         agent_info = AGENTS.get(agent, {})
                         await websocket.send_text(json.dumps({
@@ -208,16 +229,20 @@ async def websocket_chat(websocket: WebSocket, project_id: str):
                             "display_name": agent_info.get("display_name", agent),
                         }, ensure_ascii=False))
 
-                    # Токены текущего агента
+                    # Токены текущего агента (без «размышлений»: стримим только видимую часть)
                     elif kind == "on_chat_model_stream" and current is not None:
                         chunk = event["data"].get("chunk")
                         if chunk and hasattr(chunk, "content") and chunk.content:
-                            current["content"] += chunk.content
-                            await websocket.send_text(json.dumps({
-                                "type": "token",
-                                "content": chunk.content,
-                                "agent": agent,
-                            }, ensure_ascii=False))
+                            current["raw"] += chunk.content
+                            visible = _visible_text(current["raw"])
+                            delta = visible[len(current["content"]):]
+                            if delta:
+                                current["content"] = visible
+                                await websocket.send_text(json.dumps({
+                                    "type": "token",
+                                    "content": delta,
+                                    "agent": agent,
+                                }, ensure_ascii=False))
 
                 # Сохраняем в персистентную историю проекта ДО сигнала «done»,
                 # чтобы запись не потерялась, если клиент отключится сразу после done.

@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from 'react'
-import { Send, Upload, Trash2, CircleDot, FileDown } from 'lucide-react'
+import { Send, Upload, Trash2, CircleDot, FileDown, Plus, Loader2 } from 'lucide-react'
 import type { Agent, ChatMessage } from '../types'
 import type { ExportDocType } from '../api/client'
 
@@ -17,6 +17,8 @@ interface Props {
   onOpenUpload: () => void
   onClear: () => void
   onExport: (docType: ExportDocType) => void
+  onAddProjectFiles: (files: FileList) => void   // загрузка файлов в проект (кнопка «+»)
+  projectUploading?: boolean
 }
 
 const EXPORT_OPTIONS: { type: ExportDocType; label: string }[] = [
@@ -27,9 +29,10 @@ const EXPORT_OPTIONS: { type: ExportDocType; label: string }[] = [
 
 export default function ChatPanel({
   agents, selectedAgent, messages, input, connected, busy, modelLabel, exporting,
-  onInputChange, onSend, onOpenUpload, onClear, onExport,
+  onInputChange, onSend, onOpenUpload, onClear, onExport, onAddProjectFiles, projectUploading,
 }: Props) {
   const scrollRef = useRef<HTMLDivElement>(null)
+  const projectFileRef = useRef<HTMLInputElement>(null)
   const [exportOpen, setExportOpen] = useState(false)
   const agentMap = Object.fromEntries(agents.map((a) => [a.id, a]))
   const current = agentMap[selectedAgent]
@@ -138,6 +141,25 @@ export default function ChatPanel({
       {/* Input */}
       <div className="px-6 py-4 border-t border-ink-600 bg-ink-800">
         <div className="max-w-3xl mx-auto flex gap-2 items-end">
+          <input
+            ref={projectFileRef}
+            type="file"
+            multiple
+            accept=".pdf,.docx,.xlsx,.xlsm,.txt"
+            className="hidden"
+            onChange={(e) => {
+              if (e.target.files && e.target.files.length) onAddProjectFiles(e.target.files)
+              e.target.value = ''
+            }}
+          />
+          <button
+            onClick={() => projectFileRef.current?.click()}
+            disabled={projectUploading}
+            title="Прикрепить файлы к проекту (отчёт лаборатории, готовый проект и т.п.)"
+            className="shrink-0 w-11 h-11 rounded-xl border border-ink-500 bg-ink-900 hover:bg-ink-600 text-muted hover:text-gray-200 disabled:opacity-40 flex items-center justify-center transition-colors"
+          >
+            {projectUploading ? <Loader2 size={18} className="animate-spin" /> : <Plus size={18} />}
+          </button>
           <textarea
             value={input}
             onChange={(e) => onInputChange(e.target.value)}

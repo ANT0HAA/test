@@ -7,7 +7,7 @@ import AdminModal from './components/AdminModal'
 import {
   fetchAgents, useChatSocket, clearSession, fetchLlmStatus, type LlmStatus,
   fetchProjects, createProject, fetchProjectDetail, fetchIndustries, fetchKnowledge,
-  exportDocument, type ExportDocType,
+  exportDocument, uploadProjectMaterial, type ExportDocType,
 } from './api/client'
 import type { Agent, ChatMessage, Industry, KnowledgeMap, Project } from './types'
 
@@ -27,6 +27,7 @@ export default function App() {
   const [exporting, setExporting] = useState(false)
   const [showAdmin, setShowAdmin] = useState(false)
   const [knowledge, setKnowledge] = useState<KnowledgeMap>({})
+  const [projectUploading, setProjectUploading] = useState(false)
 
   // Ref to the id of the currently-streaming assistant message
   const streamingId = useRef<string | null>(null)
@@ -200,6 +201,28 @@ export default function App() {
       .catch(console.error)
   }
 
+  const handleAddProjectFiles = async (files: FileList) => {
+    if (!activeProjectId || projectUploading) return
+    setProjectUploading(true)
+    try {
+      let total = 0
+      for (const file of Array.from(files)) {
+        const res = await uploadProjectMaterial(activeProjectId, file)
+        total += res.chunks_added
+      }
+      setMessages((prev) => [...prev, {
+        id: crypto.randomUUID(), role: 'assistant', agent: 'orchestrator',
+        agentName: 'Система',
+        content: `Файлы добавлены в проект (${total} фрагментов). Эти данные имеют приоритет над базой знаний.`,
+        streaming: false,
+      }])
+    } catch (e) {
+      handleError(e instanceof Error ? e.message : 'Ошибка загрузки файлов проекта')
+    } finally {
+      setProjectUploading(false)
+    }
+  }
+
   const handleExport = async (docType: ExportDocType) => {
     if (!activeProjectId || exporting) return
     setExporting(true)
@@ -252,6 +275,8 @@ export default function App() {
           onOpenUpload={() => setShowUpload(true)}
           onClear={handleClear}
           onExport={handleExport}
+          onAddProjectFiles={handleAddProjectFiles}
+          projectUploading={projectUploading}
         />
       </div>
       {showUpload && (
