@@ -46,8 +46,14 @@ def _registry_version() -> str | None:
 
 
 def _text_of(entity) -> str:
-    """Достать строку из текстовой сущности Компаса (разные версии — разные свойства)."""
+    """Достать строку из текстовой сущности Компаса (разные версии — разные свойства).
+    У IDrawingText содержимое доступно только через интерфейс IText (CastTo)."""
+    def _via_itext(e):
+        from win32com.client import CastTo
+        return CastTo(e, "IText").Str
+
     for getter in (
+        _via_itext,
         lambda e: e.Text.Str,
         lambda e: e.Str,
         lambda e: e.Text,
@@ -183,6 +189,27 @@ class KompasClient:
                 pass
             self._release()
 
+    # ── Примитивы рисования ──────────────────────────────────────────
+    @staticmethod
+    def _rect(cont, x: float, y: float, w: float, h: float, style: int = 1) -> None:
+        ls = cont.LineSegments
+        for x1, y1, x2, y2 in [(x, y, x + w, y), (x + w, y, x + w, y + h),
+                               (x + w, y + h, x, y + h), (x, y + h, x, y)]:
+            seg = ls.Add()
+            seg.X1, seg.Y1, seg.X2, seg.Y2 = x1, y1, x2, y2
+            seg.Style = style
+            seg.Update()
+
+    @staticmethod
+    def _label(cont, cast_to, x: float, y: float, text: str, height: float = 3.5) -> None:
+        t = cont.DrawingTexts.Add()
+        t.X, t.Y, t.Height = x, y, height
+        try:
+            cast_to(t, "IText").Str = text
+        except Exception:
+            pass
+        t.Update()
+
     # ── Генерация чертежа ────────────────────────────────────────────
     def generate_drawing(self, req: GenerateRequest, out_path: str) -> None:
         app = self._connect()
@@ -193,20 +220,20 @@ class KompasClient:
             view = doc2d.ViewsAndLayersManager.Views.ActiveView
             cont = CastTo(view, "IDrawingContainer")
 
-            # Прямоугольный контур (план фундамента / габарит) основной линией
-            w, h = float(req.width_mm), float(req.length_mm)
-            segments = [(0, 0, w, 0), (w, 0, w, h), (w, h, 0, h), (0, h, 0, 0)]
-            line_segments = cont.LineSegments
-            for x1, y1, x2, y2 in segments:
-                seg = line_segments.Add()
-                seg.X1, seg.Y1, seg.X2, seg.Y2 = x1, y1, x2, y2
-                seg.Style = 1  # основная линия
-                seg.Update()
+            if req.kind == "site_plan":
+                self._draw_site_plan(cont, CastTo)
+                stamp_title = req.title if req.title != "План фундамента" else "Генплан кирпичного завода"
+            else:
+                # Прямоугольный контур (план фундамента / габарит)
+                self._rect(cont, 0, 0, float(req.width_mm), float(req.length_mm))
+                self._label(cont, CastTo, 0, -8000 if req.length_mm > 1000 else -10,
+                            f"{req.title}  {req.width_mm:.0f}×{req.length_mm:.0f} мм", height=5)
+                stamp_title = req.title
 
             # Основная надпись (штамп)
             try:
                 stamp = doc2d.LayoutSheets.Item(0).Stamp
-                stamp.Text(1).Str = req.title
+                stamp.Text(1).Str = stamp_title
                 if req.designer:
                     stamp.Text(2).Str = req.designer
                 if req.project:
@@ -222,3 +249,24 @@ class KompasClient:
             except Exception:
                 pass
             self._release()
+
+    # ── Генплан кирпичного завода (схематический, корпуса + подписи) ──
+    # Координаты в мм на листе (схема); в подписях — реальные габариты корпусов.
+    _SITE_BUILDINGS = [
+        # (название, реальные ВхД, м;  x, y, w, h на листе, мм)
+        ("Склад сырья", "18×36", 10, 150, 45, 28),
+        ("Подготовит. цех", "24×48", 65, 148, 55, 32),
+        ("Формовочный цех", "24×72", 130, 145, 75, 38),
+        ("Склад готовой продукции", "36×60", 215, 150, 60, 30),
+        ("Сушильный корпус", "18×96", 10, 60, 95, 45),
+        ("Обжигательный корпус", "18×120", 120, 55, 135, 50),
+    ]
+
+    def _draw_site_plan(self, cont, cast_to) -> None:
+        # Граница участка
+        self._rect(cont, 0, 0, 285, 200, style=3)  # тонкая/штриховая граница площадки
+        self._label(cont, cast_to, 5, 205, "ГЕНПЛАН КИРПИЧНОГО ЗАВОДА", height=7)
+        for name, size, x, y, w, h in self._SITE_BUILDINGS:
+            self._rect(cont, x, y, w, h)               # контур корпуса
+            self._label(cont, cast_to, x + 2, y + h - 6, name, height=3.5)
+            self._label(cont, cast_to, x + 2, y + 2, f"{size} м", height=3.0)

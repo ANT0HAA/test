@@ -102,7 +102,7 @@ class ExportRequest(BaseModel):
 # ─── Интеграция с Компас-3D (проксируется в kompas-connector) ──────────
 
 class KompasGenerateRequest(BaseModel):
-    kind: Literal["foundation", "rectangle"] = "foundation"
+    kind: Literal["foundation", "rectangle", "site_plan"] = "foundation"
     width_mm: float = 6000.0
     length_mm: float = 12000.0
     title: str = "План фундамента"

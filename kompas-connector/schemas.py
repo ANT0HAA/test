@@ -45,7 +45,7 @@ class ReadResult(BaseModel):
 
 class GenerateRequest(BaseModel):
     """Параметры генерации простого чертежа."""
-    kind: Literal["foundation", "rectangle"] = "foundation"
+    kind: Literal["foundation", "rectangle", "site_plan"] = "foundation"
     width_mm: float = 6000.0            # размер по X
     length_mm: float = 12000.0          # размер по Y
     title: str = "План фундамента"      # наименование изделия (в штамп)
