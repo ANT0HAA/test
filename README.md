@@ -76,6 +76,29 @@
   Изменения хранятся в PostgreSQL поверх встроенных дефолтов, граф пересобирается
   автоматически. REST: `POST/DELETE /api/industries`, `PUT/DELETE /api/agents/{industry}/{agent}`
 
+## Быстрый старт (локально, Windows) — проверено
+
+Полный сценарий, на котором проект проверен end-to-end на живой модели:
+
+1. **PostgreSQL** — запустить службу (нужны права администратора):
+   `Start-Service postgresql-x64-16` (или через «Службы»). База/роль `bureau`
+   создаются один раз (см. раздел про PostgreSQL ниже).
+2. **Ollama** — `ollama serve`, модель: `ollama pull qwen3:14b`
+   (для слабого железа сгодится `qwen3:4b`).
+3. **backend/.env** (создать, gitignored):
+   ```
+   LLM_PROVIDER=ollama
+   LLM_MODEL=qwen3:14b
+   LLM_REASONING=false
+   DATABASE_URL=postgresql+asyncpg://bureau:bureau@localhost:5432/bureau
+   ```
+4. **Backend**: `cd backend && .venv\Scripts\activate && uvicorn main:app --port 8000`
+5. **Frontend**: `cd frontend && npm run dev` → http://localhost:5173
+6. (опц.) **Наполнить базу знаний** документами: см. раздел ниже (`knowledge/seed.py`).
+
+> Важно для qwen3 (reasoning-модель): держите `LLM_REASONING=false` — иначе
+> модель тратит весь бюджет токенов на «думанье» и не доходит до ответа.
+
 ## Запуск для разработки (локально)
 
 ### 0. Ollama (модель)
