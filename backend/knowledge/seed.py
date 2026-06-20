@@ -97,14 +97,17 @@ def _docx_text(path: Path) -> str:
 def _xlsx_text(path: Path) -> str:
     from openpyxl import load_workbook
     wb = load_workbook(str(path), read_only=True, data_only=True)
-    lines: list[str] = []
-    for ws in wb.worksheets:
-        lines.append(f"[Лист: {ws.title}]")
-        for row in ws.iter_rows(values_only=True):
-            cells = [str(c).strip() for c in row if c not in (None, "")]
-            if cells:
-                lines.append(" | ".join(cells))
-    return "\n".join(lines)
+    try:
+        lines: list[str] = []
+        for ws in wb.worksheets:
+            lines.append(f"[Лист: {ws.title}]")
+            for row in ws.iter_rows(values_only=True):
+                cells = [str(c).strip() for c in row if c not in (None, "")]
+                if cells:
+                    lines.append(" | ".join(cells))
+        return "\n".join(lines)
+    finally:
+        wb.close()
 
 
 def _extract(path: Path, max_pdf_pages: int) -> str:

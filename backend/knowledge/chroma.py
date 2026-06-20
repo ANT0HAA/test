@@ -133,14 +133,17 @@ async def add_file(file_path: str, agent_name: str, industry: str = DEFAULT_INDU
             from openpyxl import load_workbook
 
             wb = load_workbook(str(path), read_only=True, data_only=True)
-            lines: list[str] = []
-            for ws in wb.worksheets:
-                lines.append(f"[Лист: {ws.title}]")
-                for row in ws.iter_rows(values_only=True):
-                    cells = [str(c).strip() for c in row if c not in (None, "")]
-                    if cells:
-                        lines.append(" | ".join(cells))
-            text = "\n".join(lines)
+            try:
+                lines: list[str] = []
+                for ws in wb.worksheets:
+                    lines.append(f"[Лист: {ws.title}]")
+                    for row in ws.iter_rows(values_only=True):
+                        cells = [str(c).strip() for c in row if c not in (None, "")]
+                        if cells:
+                            lines.append(" | ".join(cells))
+                text = "\n".join(lines)
+            finally:
+                wb.close()
         except Exception as e:
             raise ValueError(f"Ошибка чтения XLSX: {e}") from e
 

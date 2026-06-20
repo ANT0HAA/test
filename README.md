@@ -182,6 +182,15 @@ id, display_name, description, color, icon, system_prompt; при желании
 Пример второй отрасли уже включён: «Заводы ЖБИ и товарного бетона»
 (`concrete`) со своим набором специалистов.
 
+## Тесты
+```bash
+cd backend && .venv\Scripts\activate
+pip install -r requirements-dev.txt
+python -m pytest          # 20 тестов: граф/реестр/экспорт/seed, без внешних сервисов
+```
+CI (GitHub Actions, `.github/workflows/ci.yml`) гоняет backend-тесты и сборку
+фронтенда на каждый push в `main` и pull request.
+
 ## Наполнение базы знаний документами
 Через UI: кнопка «Обучить документом» — загрузка PDF / DOCX / XLSX / TXT в базу
 выбранного агента (с учётом активной отрасли).
