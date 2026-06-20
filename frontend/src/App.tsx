@@ -5,10 +5,12 @@ import UploadModal from './components/UploadModal'
 import ProjectBar from './components/ProjectBar'
 import {
   fetchAgents, useChatSocket, clearSession, fetchLlmStatus, type LlmStatus,
-  fetchProjects, createProject, fetchProjectDetail,
+  fetchProjects, createProject, fetchProjectDetail, fetchIndustries,
   exportDocument, type ExportDocType,
 } from './api/client'
-import type { Agent, ChatMessage, Project } from './types'
+import type { Agent, ChatMessage, Industry, Project } from './types'
+
+const DEFAULT_INDUSTRY = 'ceramics'
 
 export default function App() {
   const [agents, setAgents] = useState<Agent[]>([])
@@ -20,14 +22,19 @@ export default function App() {
   const [llm, setLlm] = useState<LlmStatus | null>(null)
   const [projects, setProjects] = useState<Project[]>([])
   const [activeProjectId, setActiveProjectId] = useState<string | null>(null)
+  const [industries, setIndustries] = useState<Industry[]>([])
   const [exporting, setExporting] = useState(false)
 
   // Ref to the id of the currently-streaming assistant message
   const streamingId = useRef<string | null>(null)
 
+  // Текущая отрасль определяется активным проектом (у каждого проекта своя отрасль)
+  const activeProject = projects.find((p) => p.id === activeProjectId)
+  const currentIndustry = activeProject?.industry ?? DEFAULT_INDUSTRY
+
   useEffect(() => {
-    fetchAgents().then(setAgents).catch(console.error)
     fetchLlmStatus().then(setLlm).catch(() => setLlm(null))
+    fetchIndustries().then(setIndustries).catch(console.error)
 
     fetchProjects()
       .then(async (list) => {
@@ -42,6 +49,19 @@ export default function App() {
       })
       .catch(console.error)
   }, [])
+
+  // Набор агентов зависит от отрасли активного проекта
+  useEffect(() => {
+    fetchAgents(currentIndustry)
+      .then((list) => {
+        setAgents(list)
+        // Если выбранного агента нет в новой отрасли — вернуться к оркестратору
+        setSelectedAgent((cur) =>
+          list.some((a) => a.id === cur) ? cur : 'orchestrator'
+        )
+      })
+      .catch(console.error)
+  }, [currentIndustry])
 
   // При переключении проекта — подгружаем его историю чата
   useEffect(() => {
@@ -60,8 +80,8 @@ export default function App() {
       .catch(console.error)
   }, [activeProjectId])
 
-  const handleCreateProject = async (name: string) => {
-    const created = await createProject(name)
+  const handleCreateProject = async (name: string, industry: string) => {
+    const created = await createProject(name, industry)
     setProjects((prev) => [created, ...prev])
     setActiveProjectId(created.id)
   }
@@ -180,11 +200,15 @@ export default function App() {
         agents={agents}
         selected={selectedAgent}
         onSelect={setSelectedAgent}
+        industryName={activeProject?.industry === 'ceramics' || !activeProject
+          ? 'керамические заводы'
+          : industries.find((i) => i.id === currentIndustry)?.display_name ?? currentIndustry}
       />
       <div className="flex-1 flex flex-col min-w-0">
         <ProjectBar
           projects={projects}
           activeId={activeProjectId}
+          industries={industries}
           onSelect={setActiveProjectId}
           onCreate={handleCreateProject}
         />
@@ -214,6 +238,7 @@ export default function App() {
         <UploadModal
           agents={agents}
           defaultAgent={selectedAgent}
+          industry={currentIndustry}
           onClose={() => setShowUpload(false)}
         />
       )}

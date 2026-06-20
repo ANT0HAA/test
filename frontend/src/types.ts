@@ -6,6 +6,11 @@ export interface Agent {
   icon: string
 }
 
+export interface Industry {
+  id: string
+  display_name: string
+}
+
 export interface Project {
   id: string
   name: string

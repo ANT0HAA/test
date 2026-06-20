@@ -24,7 +24,9 @@ from langgraph.graph.message import add_messages
 from pydantic import BaseModel
 
 from config import settings
-from agents.definitions import AGENTS
+from agents.definitions import (
+    get_agents, routing_keywords, all_agent_ids, DEFAULT_INDUSTRY,
+)
 from knowledge.chroma import search
 from storage.db import get_memory
 
@@ -49,6 +51,7 @@ class BureauState(TypedDict):
     delegated_task: str        # Задача последнего шага (для обратной совместимости)
     action: str                # "execute" | "respond_self"
     project_id: str            # Проект, в рамках которого идёт диалог (память по проекту)
+    industry: str              # Отрасль проекта (определяет набор агентов и базу знаний)
 
     # Межагентное взаимодействие
     plan: list[dict]           # План работ: [{"agent": id, "task": str}, ...]
@@ -107,15 +110,9 @@ def _llm(streaming: bool = False) -> BaseChatModel:
 
 # ─── Structured output для планирования ────────────────────────────────
 
-AGENT_IDS = Literal[
-    "technologist", "builder", "mechanic", "electrician",
-    "kipia", "norm_control", "estimator", "documentalist"
-]
-
-
 class PlanStep(BaseModel):
     """Один шаг плана: какому специалисту какую подзадачу поручить."""
-    agent: AGENT_IDS
+    agent: str   # id агента отрасли; валидируется в _sanitize_plan
     task: str
 
 
@@ -128,46 +125,27 @@ class PlanDecision(BaseModel):
 
 # ─── Keyword fallback (если structured output не сработал на локальной модели) ─
 
-_ROUTING_KEYWORDS: dict[str, list[str]] = {
-    "technologist": ["глин", "обжиг", "сушк", "масс", "шихт", "формов", "техпроцесс",
-                     "клинкер", "марк", "морозостойк", "печь", "температур", "состав"],
-    "builder": ["здани", "цех", "корпус", "фундамент", "констукц", "конструкц",
-                "каркас", "колонн", "балк", "ферм", "кровл", "перекрыт", "снип", "сп "],
-    "mechanic": ["пресс", "дробилк", "бегун", "конвейер", "вагонетк", "толкатель",
-                 "горелк", "дымосос", "вентилятор", "оборудован", "привод", "мельниц"],
-    "electrician": ["электр", "кабел", "щит", "трансформатор", "квт", "освещ",
-                    "напряжен", "заземлен", "пуэ", "двигател", "подстанц"],
-    "kipia": ["автоматиз", "плк", "scada", "датчик", "термопар", "кип", "асутп",
-              "регулятор", "контроллер", "измерен", "сигнал"],
-    "norm_control": ["гост", "норматив", "соответств", "требован", "проверь",
-                     "проверк", "норм", "ту ", "еск", "спдс", "стандарт"],
-    "estimator": ["смет", "стоимост", "цен", "расцен", "ведомост", "спецификац",
-                  "bom", "бюджет", "затрат", "калькуляц"],
-    "documentalist": ["документ", "отчёт", "отчет", "пояснительн", "записк", "тз ",
-                      "техническое задание", "комплект", "оформлен", "раздел"],
-}
-
-
-def _keyword_route(text: str) -> str | None:
-    """Простая эвристика выбора агента по ключевым словам."""
+def _keyword_route(text: str, industry: str) -> str | None:
+    """Простая эвристика выбора агента по ключевым словам отрасли."""
     low = text.lower()
-    scores: dict[str, int] = {}
-    for agent, kws in _ROUTING_KEYWORDS.items():
-        scores[agent] = sum(1 for kw in kws if kw in low)
+    keywords = routing_keywords(industry)
+    if not keywords:
+        return None
+    scores = {agent: sum(1 for kw in kws if kw in low) for agent, kws in keywords.items()}
     best = max(scores, key=scores.get)
     return best if scores[best] > 0 else None
 
 
-def _sanitize_plan(steps: list[PlanStep], fallback_task: str) -> list[dict]:
+def _sanitize_plan(steps: list[PlanStep], fallback_task: str, valid_agents: set[str]) -> list[dict]:
     """
     Приводит план к рабочему виду: убирает нормоконтролёра (он работает как
-    финальный ревьюер автоматически), отбрасывает неизвестных агентов,
+    финальный ревьюер автоматически), отбрасывает агентов не из отрасли,
     ограничивает длину MAX_PLAN_AGENTS.
     """
     plan: list[dict] = []
     seen: set[str] = set()
     for s in steps:
-        if s.agent == "norm_control" or s.agent not in AGENTS:
+        if s.agent == "norm_control" or s.agent not in valid_agents:
             continue
         if s.agent in seen:
             continue  # один агент — один шаг в плане
@@ -176,6 +154,10 @@ def _sanitize_plan(steps: list[PlanStep], fallback_task: str) -> list[dict]:
         if len(plan) >= MAX_PLAN_AGENTS:
             break
     return plan
+
+
+def _industry_of(state: BureauState) -> str:
+    return state.get("industry") or DEFAULT_INDUSTRY
 
 
 # ─── Базовое начальное состояние межагентных полей ─────────────────────
@@ -201,6 +183,10 @@ async def orchestrator_router(state: BureauState) -> dict:
     """
     user_text = _last_human(state["messages"])
 
+    industry = _industry_of(state)
+    agents = get_agents(industry)
+    has_norm_control = "norm_control" in agents
+
     direct = state.get("direct_agent")
     if direct and direct != "orchestrator":
         return {
@@ -214,11 +200,11 @@ async def orchestrator_router(state: BureauState) -> dict:
 
     agent_list = "\n".join(
         f"• {k}: {v['display_name']} — {v['description']}"
-        for k, v in AGENTS.items()
+        for k, v in agents.items()
         if k not in ("orchestrator", "norm_control")
     )
     system = (
-        AGENTS["orchestrator"]["system_prompt"]
+        agents["orchestrator"]["system_prompt"]
         + f"\n\nСписок специалистов:\n{agent_list}"
         + "\n\nРазбей задачу контролёра проекта на подзадачи и распредели их между "
           "специалистами (от 1 до 5 шагов, по одному на агента). Нормоконтролёра "
@@ -227,6 +213,7 @@ async def orchestrator_router(state: BureauState) -> dict:
         + "\n\nОтветь СТРОГО JSON-объектом PlanDecision без пояснений."
     )
     messages = [SystemMessage(content=system)] + list(state["messages"])
+    valid_agents = {k for k in agents if k != "orchestrator"}
 
     # Пытаемся получить план. На локальных моделях structured output может
     # не сработать — тогда откатываемся на эвристику по ключевым словам.
@@ -235,7 +222,7 @@ async def orchestrator_router(state: BureauState) -> dict:
         decision: PlanDecision = await llm.ainvoke(messages)
 
         if decision.action == "delegate":
-            plan = _sanitize_plan(decision.plan, user_text)
+            plan = _sanitize_plan(decision.plan, user_text, valid_agents)
             if plan:
                 return {
                     **_base_fields(),
@@ -243,13 +230,13 @@ async def orchestrator_router(state: BureauState) -> dict:
                     "delegated_task": plan[0]["task"],
                     "action": "execute",
                     "plan": plan,
-                    "review": True,  # после специалистов — нормоконтроль
+                    "review": has_norm_control,  # нормоконтроль, если он есть в отрасли
                 }
         return {**_base_fields(), "active_agent": "orchestrator", "action": "respond_self"}
 
     except Exception:
         # Откат: один агент по ключевым словам, без ревью (деградация на слабой модели).
-        agent = _keyword_route(user_text)
+        agent = _keyword_route(user_text, industry)
         if agent:
             return {
                 **_base_fields(),
@@ -266,8 +253,9 @@ async def orchestrator_router(state: BureauState) -> dict:
 
 async def orchestrator_respond(state: BureauState) -> dict:
     """Оркестратор отвечает пользователю напрямую."""
-    kb_context = search(_last_human(state["messages"]), "orchestrator")
-    system = AGENTS["orchestrator"]["system_prompt"]
+    industry = _industry_of(state)
+    kb_context = search(_last_human(state["messages"]), "orchestrator", industry)
+    system = get_agents(industry)["orchestrator"]["system_prompt"]
     if kb_context:
         system += f"\n\n--- Контекст из базы знаний ---\n{kb_context}"
 
@@ -291,7 +279,8 @@ def _make_specialist(agent_id: str):
     """Фабрика: создаёт async-функцию ноды для агента."""
 
     async def specialist_node(state: BureauState) -> dict:
-        agent_def = AGENTS[agent_id]
+        industry = _industry_of(state)
+        agent_def = get_agents(industry)[agent_id]
         plan = state.get("plan", [])
         step = state.get("step", 0)
 
@@ -301,7 +290,7 @@ def _make_specialist(agent_id: str):
         )
 
         # База знаний агента
-        kb_context = search(task, agent_id)
+        kb_context = search(task, agent_id, industry)
         system = agent_def["system_prompt"]
         if kb_context:
             system += f"\n\n--- Контекст из базы знаний ---\n{kb_context}"
@@ -343,7 +332,8 @@ async def norm_control_review(state: BureauState) -> dict:
     В конце ответа ставит машиночитаемый вердикт. При замечаниях и наличии
     лимита итераций — отправляет план на доработку, иначе завершает работу.
     """
-    agent_def = AGENTS["norm_control"]
+    industry = _industry_of(state)
+    agent_def = get_agents(industry)["norm_control"]
     system = (
         agent_def["system_prompt"]
         + "\n\nСейчас твоя роль — финальный нормоконтроль результатов специалистов выше "
@@ -354,7 +344,7 @@ async def norm_control_review(state: BureauState) -> dict:
           f"«ВЕРДИКТ: {VERDICT_REWORK}» — если есть замечания, которые специалисты должны устранить."
     )
 
-    kb_context = search(_last_human(state["messages"]), "norm_control")
+    kb_context = search(_last_human(state["messages"]), "norm_control", industry)
     if kb_context:
         system += f"\n\n--- Контекст из базы знаний ---\n{kb_context}"
     memory_context = await _memory_context(state.get("project_id", ""), "norm_control")
@@ -426,7 +416,8 @@ def build_graph():
     g.add_node("dispatch", dispatch)
     g.add_node("norm_control_review", norm_control_review)
 
-    specialist_ids = [k for k in AGENTS if k != "orchestrator"]
+    # Узлы — объединение специалистов по всем отраслям (граф один на все отрасли)
+    specialist_ids = [k for k in all_agent_ids() if k != "orchestrator"]
     for sid in specialist_ids:
         g.add_node(sid, _make_specialist(sid))
 

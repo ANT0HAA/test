@@ -5,7 +5,7 @@ from dataclasses import dataclass, field
 from datetime import datetime
 from typing import Literal
 
-from agents.definitions import AGENTS
+from agents.definitions import get_agents
 from storage import db as storage
 
 DocType = Literal["docx", "xlsx", "pdf"]
@@ -74,10 +74,11 @@ async def collect_project_content(project_id: str) -> ProjectExportData:
                 order.append(agent)
             grouped[agent].append(m.content.strip())
 
+    industry_agents = get_agents(project.industry)
     sections = [
         AgentSection(
             agent_id=agent,
-            display_name=AGENTS.get(agent, {}).get("display_name", agent),
+            display_name=industry_agents.get(agent, {}).get("display_name", agent),
             content="\n\n".join(p for p in grouped[agent] if p),
         )
         for agent in order

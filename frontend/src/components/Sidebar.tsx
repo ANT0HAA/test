@@ -20,9 +20,10 @@ interface Props {
   agents: Agent[]
   selected: string
   onSelect: (id: string) => void
+  industryName?: string
 }
 
-export default function Sidebar({ agents, selected, onSelect }: Props) {
+export default function Sidebar({ agents, selected, onSelect, industryName }: Props) {
   const orchestrator = agents.find((a) => a.id === 'orchestrator')
   const specialists = agents.filter((a) => a.id !== 'orchestrator')
 
@@ -32,8 +33,8 @@ export default function Sidebar({ agents, selected, onSelect }: Props) {
         <h1 className="text-sm font-semibold text-clay-300 tracking-tight">
           КОНСТРУКТОРСКОЕ БЮРО
         </h1>
-        <p className="text-xs text-faint mt-0.5 font-mono">
-          керамические заводы · v0.1
+        <p className="text-xs text-faint mt-0.5 font-mono truncate">
+          {industryName ?? 'керамические заводы'} · v0.1
         </p>
       </div>
 

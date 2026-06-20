@@ -24,7 +24,9 @@ from fastapi.responses import Response
 from langchain_core.messages import HumanMessage
 
 from config import settings
-from agents.definitions import AGENTS
+from agents.definitions import (
+    AGENTS, get_agents, get_industry, list_industries, all_agent_ids, DEFAULT_INDUSTRY,
+)
 from graph.graph import get_graph, BureauState, GRAPH_RECURSION_LIMIT
 from knowledge.chroma import add_file, list_collections
 from models.schemas import (
@@ -48,7 +50,7 @@ def _node_to_agent(node: str) -> str | None:
         return "orchestrator"
     if node == "norm_control_review":
         return "norm_control"
-    if node in AGENTS:
+    if node in all_agent_ids():
         return node
     return None  # orchestrator_router, dispatch и прочие служебные
 
@@ -114,7 +116,8 @@ async def websocket_chat(websocket: WebSocket, project_id: str):
     graph = get_graph()
 
     # Проект может быть создан заранее через REST либо лениво (для обратной совместимости)
-    await storage.get_or_create_project(project_id)
+    project = await storage.get_or_create_project(project_id)
+    industry = project.industry or DEFAULT_INDUSTRY
 
     try:
         while True:
@@ -138,7 +141,7 @@ async def websocket_chat(websocket: WebSocket, project_id: str):
                 await storage.add_message(project_id, "human", selected_agent, user_message)
                 await storage.add_message(project_id, "ai", memory_agent, confirmation)
 
-                agent_info = AGENTS.get(memory_agent, {})
+                agent_info = get_agents(industry).get(memory_agent, {})
                 await websocket.send_text(json.dumps({
                     "type": "agent_start",
                     "agent": memory_agent,
@@ -162,6 +165,7 @@ async def websocket_chat(websocket: WebSocket, project_id: str):
                 "delegated_task": "",
                 "action": "",
                 "project_id": project_id,
+                "industry": industry,
                 "plan": [],
                 "step": 0,
                 "iteration": 0,
@@ -245,10 +249,11 @@ async def websocket_chat(websocket: WebSocket, project_id: str):
 async def upload_document(
     file: UploadFile = File(...),
     agent: str = Form("orchestrator"),
+    industry: str = Form(DEFAULT_INDUSTRY),
 ):
-    """Загрузить документ в базу знаний указанного агента."""
-    if agent not in AGENTS:
-        raise HTTPException(status_code=400, detail=f"Неизвестный агент: {agent}")
+    """Загрузить документ в базу знаний агента указанной отрасли."""
+    if agent not in get_agents(industry):
+        raise HTTPException(status_code=400, detail=f"Неизвестный агент «{agent}» в отрасли «{industry}»")
 
     allowed = {".txt", ".pdf", ".docx", ".doc"}
     suffix = Path(file.filename or "").suffix.lower()
@@ -258,14 +263,14 @@ async def upload_document(
             detail=f"Поддерживаемые форматы: {', '.join(allowed)}",
         )
 
-    # Сохраняем файл
-    save_path = Path(settings.uploads_path) / f"{agent}_{file.filename}"
+    # Сохраняем файл (имя с отраслью и агентом — чтобы не было коллизий)
+    save_path = Path(settings.uploads_path) / f"{industry}_{agent}_{file.filename}"
     content = await file.read()
     save_path.write_bytes(content)
 
-    # Добавляем в базу знаний
+    # Добавляем в базу знаний отрасли
     try:
-        chunks = await add_file(str(save_path), agent)
+        chunks = await add_file(str(save_path), agent, industry)
     except ValueError as e:
         raise HTTPException(status_code=422, detail=str(e))
 
@@ -277,10 +282,17 @@ async def upload_document(
     )
 
 
-# ─── REST: agents list ────────────────────────────────────────────────
+# ─── REST: industries & agents ────────────────────────────────────────
+
+@app.get("/api/industries")
+async def get_industries():
+    """Список отраслей платформы."""
+    return list_industries()
+
 
 @app.get("/api/agents", response_model=list[AgentInfo])
-async def get_agents():
+async def list_agents(industry: str = DEFAULT_INDUSTRY):
+    """Агенты указанной отрасли (по умолчанию — отрасль по умолчанию)."""
     return [
         AgentInfo(
             id=k,
@@ -289,7 +301,7 @@ async def get_agents():
             color=v["color"],
             icon=v["icon"],
         )
-        for k, v in AGENTS.items()
+        for k, v in get_agents(industry).items()
     ]
 
 
@@ -300,7 +312,7 @@ async def health():
     collections = list_collections()
     return HealthResponse(
         status="ok",
-        agents=len(AGENTS),
+        agents=len(all_agent_ids()),
         collections=collections,
     )
 

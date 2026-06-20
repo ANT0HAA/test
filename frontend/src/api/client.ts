@@ -1,12 +1,18 @@
 import { useEffect, useRef, useState, useCallback } from 'react'
-import type { Agent, Project, ProjectMessageInfo, WsEvent } from '../types'
+import type { Agent, Industry, Project, ProjectMessageInfo, WsEvent } from '../types'
 
 const API_BASE = '' // proxied via vite
 
 // ─── REST ───────────────────────────────────────────────────────────
 
-export async function fetchAgents(): Promise<Agent[]> {
-  const res = await fetch(`${API_BASE}/api/agents`)
+export async function fetchIndustries(): Promise<Industry[]> {
+  const res = await fetch(`${API_BASE}/api/industries`)
+  if (!res.ok) throw new Error('Не удалось загрузить отрасли')
+  return res.json()
+}
+
+export async function fetchAgents(industry = 'ceramics'): Promise<Agent[]> {
+  const res = await fetch(`${API_BASE}/api/agents?industry=${encodeURIComponent(industry)}`)
   if (!res.ok) throw new Error('Не удалось загрузить агентов')
   return res.json()
 }
@@ -37,11 +43,13 @@ export async function fetchProjectDetail(
 
 export async function uploadDocument(
   file: File,
-  agent: string
+  agent: string,
+  industry = 'ceramics'
 ): Promise<{ ok: boolean; chunks_added: number; filename: string }> {
   const form = new FormData()
   form.append('file', file)
   form.append('agent', agent)
+  form.append('industry', industry)
   const res = await fetch(`${API_BASE}/api/upload`, {
     method: 'POST',
     body: form,

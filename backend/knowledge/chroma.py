@@ -1,6 +1,6 @@
 """
 База знаний на ChromaDB.
-У каждого агента — своя коллекция.
+У каждого агента в каждой отрасли — своя коллекция: имя `{industry}_{agent}`.
 Документы разбиваются на чанки и хранятся с метаданными.
 """
 import os
@@ -11,6 +11,7 @@ import chromadb
 from chromadb.utils import embedding_functions
 
 from config import settings
+from agents.definitions import DEFAULT_INDUSTRY
 
 
 # ─── Singleton ChromaDB client ─────────────────────────────────────────
@@ -26,13 +27,13 @@ def get_client() -> chromadb.ClientAPI:
     return _client
 
 
-def get_collection(agent_name: str) -> chromadb.Collection:
-    """Получить (или создать) коллекцию для агента."""
+def get_collection(agent_name: str, industry: str = DEFAULT_INDUSTRY) -> chromadb.Collection:
+    """Получить (или создать) коллекцию агента в рамках отрасли (изоляция по `{industry}_{agent}`)."""
     ef = embedding_functions.DefaultEmbeddingFunction()
     return get_client().get_or_create_collection(
-        name=f"agent_{agent_name}",
+        name=f"{industry}_{agent_name}",
         embedding_function=ef,
-        metadata={"agent": agent_name},
+        metadata={"agent": agent_name, "industry": industry},
     )
 
 
@@ -63,13 +64,14 @@ def add_text(
     agent_name: str,
     filename: str = "manual",
     extra_metadata: dict | None = None,
+    industry: str = DEFAULT_INDUSTRY,
 ) -> int:
-    """Добавить текст в базу знаний агента. Возвращает кол-во добавленных чанков."""
+    """Добавить текст в базу знаний агента отрасли. Возвращает кол-во добавленных чанков."""
     chunks = _chunk_text(text)
     if not chunks:
         return 0
 
-    col = get_collection(agent_name)
+    col = get_collection(agent_name, industry)
     existing_ids = set(col.get()["ids"])
 
     ids, documents, metadatas = [], [], []
@@ -87,8 +89,8 @@ def add_text(
     return len(ids)
 
 
-async def add_file(file_path: str, agent_name: str) -> int:
-    """Прочитать файл (txt/pdf/docx) и добавить в базу агента."""
+async def add_file(file_path: str, agent_name: str, industry: str = DEFAULT_INDUSTRY) -> int:
+    """Прочитать файл (txt/pdf/docx) и добавить в базу агента отрасли."""
     path = Path(file_path)
     suffix = path.suffix.lower()
     text = ""
@@ -120,17 +122,17 @@ async def add_file(file_path: str, agent_name: str) -> int:
     else:
         raise ValueError(f"Неподдерживаемый тип файла: {suffix}")
 
-    return add_text(text, agent_name, filename=path.name)
+    return add_text(text, agent_name, filename=path.name, industry=industry)
 
 
 # ─── Search ────────────────────────────────────────────────────────────
 
-def search(query: str, agent_name: str, n_results: int = 5) -> str:
+def search(query: str, agent_name: str, industry: str = DEFAULT_INDUSTRY, n_results: int = 5) -> str:
     """
-    Семантический поиск по базе знаний агента.
+    Семантический поиск по базе знаний агента отрасли.
     Возвращает конкатенированные релевантные чанки или пустую строку.
     """
-    col = get_collection(agent_name)
+    col = get_collection(agent_name, industry)
 
     # Если коллекция пустая — вернуть пустоту без ошибки
     if col.count() == 0:

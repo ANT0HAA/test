@@ -6,10 +6,11 @@ import { uploadDocument } from '../api/client'
 interface Props {
   agents: Agent[]
   defaultAgent: string
+  industry: string
   onClose: () => void
 }
 
-export default function UploadModal({ agents, defaultAgent, onClose }: Props) {
+export default function UploadModal({ agents, defaultAgent, industry, onClose }: Props) {
   const [agent, setAgent] = useState(defaultAgent)
   const [file, setFile] = useState<File | null>(null)
   const [status, setStatus] = useState<'idle' | 'uploading' | 'done' | 'error'>('idle')
@@ -21,7 +22,7 @@ export default function UploadModal({ agents, defaultAgent, onClose }: Props) {
     setStatus('uploading')
     setMessage('')
     try {
-      const res = await uploadDocument(file, agent)
+      const res = await uploadDocument(file, agent, industry)
       setStatus('done')
       setMessage(`Добавлено фрагментов: ${res.chunks_added}`)
     } catch (e) {
