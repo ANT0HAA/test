@@ -20,3 +20,6 @@ dist/
 .vscode/
 .idea/
 .DS_Store
+
+# Локальные dev-конфиги (машинно-зависимые абсолютные пути)
+.claude/launch.json
