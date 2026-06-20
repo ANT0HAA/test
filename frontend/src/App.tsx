@@ -3,6 +3,7 @@ import Sidebar from './components/Sidebar'
 import ChatPanel from './components/ChatPanel'
 import UploadModal from './components/UploadModal'
 import ProjectBar from './components/ProjectBar'
+import AdminModal from './components/AdminModal'
 import {
   fetchAgents, useChatSocket, clearSession, fetchLlmStatus, type LlmStatus,
   fetchProjects, createProject, fetchProjectDetail, fetchIndustries,
@@ -24,6 +25,7 @@ export default function App() {
   const [activeProjectId, setActiveProjectId] = useState<string | null>(null)
   const [industries, setIndustries] = useState<Industry[]>([])
   const [exporting, setExporting] = useState(false)
+  const [showAdmin, setShowAdmin] = useState(false)
 
   // Ref to the id of the currently-streaming assistant message
   const streamingId = useRef<string | null>(null)
@@ -182,6 +184,17 @@ export default function App() {
     setMessages([])
   }
 
+  // После изменений в панели управления — обновить отрасли и агентов текущей отрасли
+  const handleAdminChanged = () => {
+    fetchIndustries().then(setIndustries).catch(console.error)
+    fetchAgents(currentIndustry)
+      .then((list) => {
+        setAgents(list)
+        setSelectedAgent((cur) => (list.some((a) => a.id === cur) ? cur : 'orchestrator'))
+      })
+      .catch(console.error)
+  }
+
   const handleExport = async (docType: ExportDocType) => {
     if (!activeProjectId || exporting) return
     setExporting(true)
@@ -200,6 +213,7 @@ export default function App() {
         agents={agents}
         selected={selectedAgent}
         onSelect={setSelectedAgent}
+        onOpenAdmin={() => setShowAdmin(true)}
         industryName={activeProject?.industry === 'ceramics' || !activeProject
           ? 'керамические заводы'
           : industries.find((i) => i.id === currentIndustry)?.display_name ?? currentIndustry}
@@ -240,6 +254,14 @@ export default function App() {
           defaultAgent={selectedAgent}
           industry={currentIndustry}
           onClose={() => setShowUpload(false)}
+        />
+      )}
+      {showAdmin && (
+        <AdminModal
+          industries={industries}
+          currentIndustry={currentIndustry}
+          onClose={() => setShowAdmin(false)}
+          onChanged={handleAdminChanged}
         />
       )}
     </div>

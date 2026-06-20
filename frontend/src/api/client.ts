@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState, useCallback } from 'react'
-import type { Agent, Industry, Project, ProjectMessageInfo, WsEvent } from '../types'
+import type { Agent, AgentDetail, Industry, Project, ProjectMessageInfo, WsEvent } from '../types'
 
 const API_BASE = '' // proxied via vite
 
@@ -15,6 +15,53 @@ export async function fetchAgents(industry = 'ceramics'): Promise<Agent[]> {
   const res = await fetch(`${API_BASE}/api/agents?industry=${encodeURIComponent(industry)}`)
   if (!res.ok) throw new Error('Не удалось загрузить агентов')
   return res.json()
+}
+
+export async function fetchAgentDetail(industry: string, agentId: string): Promise<AgentDetail> {
+  const res = await fetch(`${API_BASE}/api/agents/${industry}/${agentId}`)
+  if (!res.ok) throw new Error('Не удалось загрузить агента')
+  return res.json()
+}
+
+async function jsonOrThrow(res: Response) {
+  if (!res.ok) {
+    const err = await res.json().catch(() => ({ detail: 'Ошибка запроса' }))
+    throw new Error(err.detail || 'Ошибка запроса')
+  }
+  return res.json()
+}
+
+export async function createIndustry(id: string, displayName: string) {
+  return jsonOrThrow(await fetch(`${API_BASE}/api/industries`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ id, display_name: displayName }),
+  }))
+}
+
+export async function deleteIndustry(id: string) {
+  return jsonOrThrow(await fetch(`${API_BASE}/api/industries/${id}`, { method: 'DELETE' }))
+}
+
+export interface AgentUpsertBody {
+  display_name?: string
+  description?: string
+  color?: string
+  icon?: string
+  system_prompt?: string
+  keywords?: string
+}
+
+export async function upsertAgent(industry: string, agentId: string, body: AgentUpsertBody) {
+  return jsonOrThrow(await fetch(`${API_BASE}/api/agents/${industry}/${agentId}`, {
+    method: 'PUT',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(body),
+  }))
+}
+
+export async function deleteAgent(industry: string, agentId: string) {
+  return jsonOrThrow(await fetch(`${API_BASE}/api/agents/${industry}/${agentId}`, { method: 'DELETE' }))
 }
 
 export async function fetchProjects(): Promise<Project[]> {

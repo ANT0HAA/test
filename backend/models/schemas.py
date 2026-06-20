@@ -53,6 +53,7 @@ class AgentInfo(BaseModel):
     description: str
     color: str
     icon: str
+    builtin: bool = True
 
 
 class HealthResponse(BaseModel):
@@ -107,3 +108,19 @@ class KompasGenerateRequest(BaseModel):
     title: str = "План фундамента"
     project: str = ""
     designer: str = "AI Конструкторское бюро"
+
+
+# ─── Управление агентами и отраслями (admin UI) ───────────────────────
+
+class IndustryCreate(BaseModel):
+    id: str
+    display_name: str
+
+
+class AgentUpsert(BaseModel):
+    display_name: str = ""
+    description: str = ""
+    color: str = ""
+    icon: str = ""
+    system_prompt: str = ""
+    keywords: str = ""  # ключевые слова маршрутизации через запятую

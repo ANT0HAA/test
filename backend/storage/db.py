@@ -51,6 +51,34 @@ class ProjectMemory(Base):
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=lambda: datetime.now(timezone.utc))
 
 
+class CustomIndustry(Base):
+    """Пользовательская отрасль (добавленная через UI поверх встроенных)."""
+    __tablename__ = "custom_industries"
+
+    id: Mapped[str] = mapped_column(String(50), primary_key=True)
+    display_name: Mapped[str] = mapped_column(String(200))
+
+
+class AgentOverride(Base):
+    """
+    Кастомизация агента: правка встроенного (поля переопределяют код),
+    новый агент (is_custom=True) или скрытие (deleted=True).
+    Ключ — (industry, agent_id).
+    """
+    __tablename__ = "agent_overrides"
+
+    industry: Mapped[str] = mapped_column(String(50), primary_key=True)
+    agent_id: Mapped[str] = mapped_column(String(50), primary_key=True)
+    display_name: Mapped[str] = mapped_column(String(200), default="")
+    description: Mapped[str] = mapped_column(Text, default="")
+    color: Mapped[str] = mapped_column(String(20), default="")
+    icon: Mapped[str] = mapped_column(String(50), default="")
+    system_prompt: Mapped[str] = mapped_column(Text, default="")
+    keywords: Mapped[str] = mapped_column(Text, default="")  # ключевые слова через запятую
+    is_custom: Mapped[bool] = mapped_column(default=False)
+    deleted: Mapped[bool] = mapped_column(default=False)
+
+
 _engine = create_async_engine(settings.database_url, pool_pre_ping=True)
 _SessionLocal = async_sessionmaker(_engine, expire_on_commit=False)
 
@@ -153,3 +181,57 @@ async def get_memory(project_id: str, agent: str) -> list[ProjectMemory]:
             .order_by(ProjectMemory.created_at.asc())
         )
         return list(result.scalars().all())
+
+
+# ─── Кастомизация агентов и отраслей (управление через UI) ────────────
+
+async def list_custom_industries() -> list[CustomIndustry]:
+    async with _SessionLocal() as session:
+        result = await session.execute(select(CustomIndustry))
+        return list(result.scalars().all())
+
+
+async def upsert_custom_industry(industry_id: str, display_name: str) -> None:
+    async with _SessionLocal() as session:
+        row = await session.get(CustomIndustry, industry_id)
+        if row:
+            row.display_name = display_name
+        else:
+            session.add(CustomIndustry(id=industry_id, display_name=display_name))
+        await session.commit()
+
+
+async def delete_custom_industry(industry_id: str) -> None:
+    async with _SessionLocal() as session:
+        row = await session.get(CustomIndustry, industry_id)
+        if row:
+            await session.delete(row)
+        # заодно убрать кастомизации агентов этой отрасли
+        await session.execute(delete(AgentOverride).where(AgentOverride.industry == industry_id))
+        await session.commit()
+
+
+async def list_agent_overrides() -> list[AgentOverride]:
+    async with _SessionLocal() as session:
+        result = await session.execute(select(AgentOverride))
+        return list(result.scalars().all())
+
+
+async def upsert_agent_override(industry: str, agent_id: str, fields: dict) -> None:
+    """Создать/обновить кастомизацию агента. fields — только переопределяемые поля."""
+    async with _SessionLocal() as session:
+        row = await session.get(AgentOverride, (industry, agent_id))
+        if not row:
+            row = AgentOverride(industry=industry, agent_id=agent_id)
+            session.add(row)
+        for key, value in fields.items():
+            setattr(row, key, value)
+        await session.commit()
+
+
+async def delete_agent_override(industry: str, agent_id: str) -> None:
+    async with _SessionLocal() as session:
+        row = await session.get(AgentOverride, (industry, agent_id))
+        if row:
+            await session.delete(row)
+            await session.commit()

@@ -1,6 +1,6 @@
 import {
   Network, Flame, Building2, Settings, Zap, Cpu,
-  ClipboardCheck, Calculator, FileText, type LucideIcon,
+  ClipboardCheck, Calculator, FileText, SlidersHorizontal, type LucideIcon,
 } from 'lucide-react'
 import type { Agent } from '../types'
 
@@ -20,22 +20,34 @@ interface Props {
   agents: Agent[]
   selected: string
   onSelect: (id: string) => void
+  onOpenAdmin?: () => void
   industryName?: string
 }
 
-export default function Sidebar({ agents, selected, onSelect, industryName }: Props) {
+export default function Sidebar({ agents, selected, onSelect, onOpenAdmin, industryName }: Props) {
   const orchestrator = agents.find((a) => a.id === 'orchestrator')
   const specialists = agents.filter((a) => a.id !== 'orchestrator')
 
   return (
     <aside className="w-72 shrink-0 bg-ink-800 border-r border-ink-600 flex flex-col h-full">
-      <div className="px-5 py-4 border-b border-ink-600">
-        <h1 className="text-sm font-semibold text-clay-300 tracking-tight">
-          КОНСТРУКТОРСКОЕ БЮРО
-        </h1>
-        <p className="text-xs text-faint mt-0.5 font-mono truncate">
-          {industryName ?? 'керамические заводы'} · v0.1
-        </p>
+      <div className="px-5 py-4 border-b border-ink-600 flex items-start justify-between gap-2">
+        <div className="min-w-0">
+          <h1 className="text-sm font-semibold text-clay-300 tracking-tight">
+            КОНСТРУКТОРСКОЕ БЮРО
+          </h1>
+          <p className="text-xs text-faint mt-0.5 font-mono truncate">
+            {industryName ?? 'керамические заводы'} · v0.1
+          </p>
+        </div>
+        {onOpenAdmin && (
+          <button
+            onClick={onOpenAdmin}
+            title="Управление агентами и отраслями"
+            className="shrink-0 p-1.5 rounded-lg hover:bg-ink-600 text-muted hover:text-gray-200 transition-colors"
+          >
+            <SlidersHorizontal size={15} />
+          </button>
+        )}
       </div>
 
       <nav className="flex-1 overflow-y-auto px-3 py-3">

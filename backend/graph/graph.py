@@ -457,3 +457,10 @@ def get_graph():
     if _graph is None:
         _graph = build_graph()
     return _graph
+
+
+def reset_graph() -> None:
+    """Сбросить синглтон графа — пересоберётся с актуальным набором агентов
+    (после добавления/удаления агентов или отраслей через UI)."""
+    global _graph
+    _graph = None

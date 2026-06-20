@@ -26,13 +26,14 @@ from langchain_core.messages import HumanMessage
 from config import settings
 from agents.definitions import (
     AGENTS, get_agents, get_industry, list_industries, all_agent_ids, DEFAULT_INDUSTRY,
+    load_customizations, _BUILTIN_INDUSTRIES,
 )
-from graph.graph import get_graph, BureauState, GRAPH_RECURSION_LIMIT
+from graph.graph import get_graph, reset_graph, BureauState, GRAPH_RECURSION_LIMIT
 from knowledge.chroma import add_file, list_collections
 from models.schemas import (
     UploadResponse, AgentInfo, HealthResponse,
     ProjectCreate, ProjectInfo, ProjectDetail, ProjectMessageInfo, MemoryNoteCreate,
-    ExportRequest, KompasGenerateRequest,
+    ExportRequest, KompasGenerateRequest, IndustryCreate, AgentUpsert,
 )
 from storage import db as storage
 from export import build_document
@@ -82,6 +83,7 @@ _REMEMBER_RE = re.compile(r"^запомни\s*[:\-]\s*(.+)", re.IGNORECASE | re.
 @app.on_event("startup")
 async def on_startup() -> None:
     await storage.init_db()
+    await load_customizations()  # подтянуть кастомные отрасли/агентов из БД
 
 
 # ─── WebSocket manager ────────────────────────────────────────────────
@@ -300,9 +302,105 @@ async def list_agents(industry: str = DEFAULT_INDUSTRY):
             description=v["description"],
             color=v["color"],
             icon=v["icon"],
+            builtin=_is_builtin_agent(industry, k),
         )
         for k, v in get_agents(industry).items()
     ]
+
+
+@app.get("/api/agents/{industry}/{agent_id}")
+async def get_agent_detail(industry: str, agent_id: str):
+    """Полное описание агента (включая system_prompt и keywords) — для формы редактирования."""
+    agents = get_agents(industry)
+    if agent_id not in agents:
+        raise HTTPException(status_code=404, detail="Агент не найден")
+    a = agents[agent_id]
+    from agents.definitions import routing_keywords as _kw
+    keywords = ", ".join(_kw(industry).get(agent_id, []))
+    return {
+        "id": agent_id,
+        "display_name": a["display_name"],
+        "description": a.get("description", ""),
+        "color": a.get("color", ""),
+        "icon": a.get("icon", ""),
+        "system_prompt": a.get("system_prompt", ""),
+        "keywords": keywords,
+        "builtin": _is_builtin_agent(industry, agent_id),
+    }
+
+
+# ─── REST: управление агентами и отраслями (admin UI) ─────────────────
+
+async def _refresh_registry() -> None:
+    """Перечитать кэш кастомизаций и пересобрать граф под новый набор агентов."""
+    await load_customizations()
+    reset_graph()
+
+
+def _is_builtin_agent(industry: str, agent_id: str) -> bool:
+    return agent_id in _BUILTIN_INDUSTRIES.get(industry, {}).get("agents", {})
+
+
+@app.post("/api/industries")
+async def create_industry(payload: IndustryCreate):
+    """Создать кастомную отрасль (с базовым оркестратором, чтобы была работоспособна)."""
+    industry_id = payload.id.strip().lower()
+    if not industry_id.isidentifier():
+        raise HTTPException(status_code=400, detail="id отрасли: латиница/цифры/подчёркивание")
+    if industry_id in _BUILTIN_INDUSTRIES:
+        raise HTTPException(status_code=400, detail="Такая отрасль уже встроена")
+    await storage.upsert_custom_industry(industry_id, payload.display_name.strip() or industry_id)
+    # базовый оркестратор, чтобы отрасль сразу могла вести диалог
+    await storage.upsert_agent_override(industry_id, "orchestrator", {
+        "display_name": "Главный конструктор",
+        "description": "Оркестратор · координирует работу бюро",
+        "color": "#58A6FF", "icon": "sitemap",
+        "system_prompt": f"Ты Главный конструктор бюро (отрасль «{payload.display_name}»). "
+                         "Принимай задачи, отвечай сам или распределяй между специалистами. Отвечай на русском.",
+        "is_custom": True,
+    })
+    await _refresh_registry()
+    return {"ok": True, "id": industry_id}
+
+
+@app.delete("/api/industries/{industry_id}")
+async def delete_industry(industry_id: str):
+    """Удалить кастомную отрасль (встроенные не удаляются)."""
+    if industry_id in _BUILTIN_INDUSTRIES:
+        raise HTTPException(status_code=400, detail="Встроенную отрасль удалить нельзя")
+    await storage.delete_custom_industry(industry_id)
+    await _refresh_registry()
+    return {"ok": True}
+
+
+@app.put("/api/agents/{industry}/{agent_id}")
+async def upsert_agent(industry: str, agent_id: str, payload: AgentUpsert):
+    """Создать или изменить агента отрасли (правка встроенного или новый кастомный)."""
+    agent_id = agent_id.strip().lower()
+    if not agent_id.isidentifier():
+        raise HTTPException(status_code=400, detail="id агента: латиница/цифры/подчёркивание")
+    if industry not in _BUILTIN_INDUSTRIES and industry not in [i["id"] for i in list_industries()]:
+        raise HTTPException(status_code=404, detail="Отрасль не найдена")
+
+    fields = payload.model_dump()
+    fields["is_custom"] = not _is_builtin_agent(industry, agent_id)
+    fields["deleted"] = False
+    await storage.upsert_agent_override(industry, agent_id, fields)
+    await _refresh_registry()
+    return {"ok": True, "industry": industry, "agent_id": agent_id, "custom": fields["is_custom"]}
+
+
+@app.delete("/api/agents/{industry}/{agent_id}")
+async def delete_agent(industry: str, agent_id: str):
+    """
+    Кастомного агента — удалить насовсем; встроенного — сбросить к стандарту
+    (снять кастомизацию). В обоих случаях убираем строку оверрайда.
+    """
+    if agent_id == "orchestrator":
+        raise HTTPException(status_code=400, detail="Оркестратора удалить нельзя")
+    await storage.delete_agent_override(industry, agent_id)
+    await _refresh_registry()
+    return {"ok": True}
 
 
 # ─── REST: health ─────────────────────────────────────────────────────

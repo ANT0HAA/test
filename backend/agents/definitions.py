@@ -622,11 +622,11 @@ _CONCRETE_KEYWORDS: dict[str, list[str]] = {
 }
 
 
-# ─── Реестр отраслей ───────────────────────────────────────────────────
+# ─── Реестр отраслей: встроенные дефолты ───────────────────────────────
 
 DEFAULT_INDUSTRY = "ceramics"
 
-INDUSTRIES: dict[str, dict] = {
+_BUILTIN_INDUSTRIES: dict[str, dict] = {
     "ceramics": {
         "id": "ceramics",
         "display_name": "Керамические (кирпичные) заводы",
@@ -641,35 +641,123 @@ INDUSTRIES: dict[str, dict] = {
     },
 }
 
-# Обратная совместимость: AGENTS == агенты отрасли по умолчанию (керамика)
+# Обратная совместимость: AGENTS == встроенные агенты отрасли по умолчанию
 AGENTS = _CERAMICS_AGENTS
 
+_AGENT_FIELDS = ("display_name", "description", "color", "icon", "system_prompt")
 
-def get_industry(industry_id: str | None) -> dict:
-    """Отрасль по id; неизвестная/None → отрасль по умолчанию."""
-    return INDUSTRIES.get(industry_id or DEFAULT_INDUSTRY, INDUSTRIES[DEFAULT_INDUSTRY])
+# ─── Слой кастомизации (управление через UI), кэш в памяти ─────────────
+# Заполняется из БД через load_customizations(); граф/эндпоинты читают
+# эффективный реестр синхронно.
+
+_custom_industry_names: dict[str, str] = {}            # id → display_name (кастомные отрасли)
+_overrides: dict[tuple[str, str], dict] = {}           # (industry, agent_id) → поля + флаги
+
+
+async def load_customizations() -> None:
+    """Загрузить кастомизации агентов/отраслей из БД в кэш (вызывать при старте и после CRUD)."""
+    from storage import db  # локальный импорт во избежание цикла
+    _custom_industry_names.clear()
+    _overrides.clear()
+    for ci in await db.list_custom_industries():
+        _custom_industry_names[ci.id] = ci.display_name
+    for o in await db.list_agent_overrides():
+        _overrides[(o.industry, o.agent_id)] = {
+            "display_name": o.display_name, "description": o.description,
+            "color": o.color, "icon": o.icon, "system_prompt": o.system_prompt,
+            "keywords": o.keywords, "is_custom": o.is_custom, "deleted": o.deleted,
+        }
+
+
+def _industry_ids() -> list[str]:
+    ids = list(_BUILTIN_INDUSTRIES.keys())
+    for cid in _custom_industry_names:
+        if cid not in ids:
+            ids.append(cid)
+    return ids
+
+
+def _industry_display_name(industry_id: str) -> str:
+    if industry_id in _BUILTIN_INDUSTRIES:
+        return _BUILTIN_INDUSTRIES[industry_id]["display_name"]
+    return _custom_industry_names.get(industry_id, industry_id)
 
 
 def get_agents(industry_id: str | None) -> dict[str, dict]:
-    """Набор агентов отрасли."""
-    return get_industry(industry_id)["agents"]
+    """Эффективный набор агентов отрасли: встроенные + правки + кастомные − удалённые."""
+    industry = industry_id or DEFAULT_INDUSTRY
+    # Неизвестная отрасль (например, проект ссылается на удалённую) → откат на дефолт
+    if industry not in _BUILTIN_INDUSTRIES and industry not in _custom_industry_names:
+        industry = DEFAULT_INDUSTRY
+    base = _BUILTIN_INDUSTRIES.get(industry, {}).get("agents", {})
+    agents: dict[str, dict] = {}
+
+    for aid, adef in base.items():
+        ov = _overrides.get((industry, aid))
+        if ov and ov["deleted"]:
+            continue
+        if ov:
+            merged = dict(adef)
+            for f in _AGENT_FIELDS:
+                if ov.get(f):
+                    merged[f] = ov[f]
+            agents[aid] = merged
+        else:
+            agents[aid] = adef
+
+    # Кастомные агенты (которых нет среди встроенных)
+    for (ind, aid), ov in _overrides.items():
+        if ind != industry or aid in base or ov["deleted"] or not ov.get("is_custom"):
+            continue
+        agents[aid] = {
+            "display_name": ov.get("display_name") or aid,
+            "description": ov.get("description", ""),
+            "color": ov.get("color") or "#8B949E",
+            "icon": ov.get("icon") or "sitemap",
+            "system_prompt": ov.get("system_prompt", ""),
+        }
+    return agents
+
+
+def get_industry(industry_id: str | None) -> dict:
+    """Эффективная отрасль по id; неизвестная/None → отрасль по умолчанию."""
+    industry = industry_id or DEFAULT_INDUSTRY
+    if industry not in _BUILTIN_INDUSTRIES and industry not in _custom_industry_names:
+        industry = DEFAULT_INDUSTRY
+    return {
+        "id": industry,
+        "display_name": _industry_display_name(industry),
+        "agents": get_agents(industry),
+        "routing_keywords": routing_keywords(industry),
+    }
 
 
 def routing_keywords(industry_id: str | None) -> dict[str, list[str]]:
-    """Ключевые слова маршрутизации отрасли (для отката)."""
-    return get_industry(industry_id).get("routing_keywords", {})
+    """Эффективные ключевые слова маршрутизации отрасли (для отката)."""
+    industry = industry_id or DEFAULT_INDUSTRY
+    kw = dict(_BUILTIN_INDUSTRIES.get(industry, {}).get("routing_keywords", {}))
+    for (ind, aid), ov in _overrides.items():
+        if ind != industry:
+            continue
+        if ov["deleted"]:
+            kw.pop(aid, None)
+            continue
+        if ov.get("keywords"):
+            kw[aid] = [w.strip().lower() for w in ov["keywords"].split(",") if w.strip()]
+    return kw
 
 
 def list_industries() -> list[dict]:
-    """Список отраслей для UI."""
-    return [{"id": ind["id"], "display_name": ind["display_name"]} for ind in INDUSTRIES.values()]
+    """Список отраслей для UI (встроенные + кастомные)."""
+    return [{"id": i, "display_name": _industry_display_name(i),
+             "builtin": i in _BUILTIN_INDUSTRIES} for i in _industry_ids()]
 
 
 def all_agent_ids() -> list[str]:
     """Объединение id агентов по всем отраслям (для построения графа)."""
     ids: list[str] = []
-    for ind in INDUSTRIES.values():
-        for aid in ind["agents"]:
+    for industry in _industry_ids():
+        for aid in get_agents(industry):
             if aid not in ids:
                 ids.append(aid)
     return ids

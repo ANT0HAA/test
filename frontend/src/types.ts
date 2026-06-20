@@ -4,11 +4,24 @@ export interface Agent {
   description: string
   color: string
   icon: string
+  builtin?: boolean
 }
 
 export interface Industry {
   id: string
   display_name: string
+  builtin?: boolean
+}
+
+export interface AgentDetail {
+  id: string
+  display_name: string
+  description: string
+  color: string
+  icon: string
+  system_prompt: string
+  keywords: string
+  builtin: boolean
 }
 
 export interface Project {
