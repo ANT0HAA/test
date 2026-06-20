@@ -12,7 +12,11 @@
 --max-pdf-pages 0 — без ограничения (весь документ); иначе — первые N страниц.
 """
 import argparse
+import os
+import shutil
+import subprocess
 import sys
+import tempfile
 from pathlib import Path
 
 from agents.definitions import DEFAULT_INDUSTRY, get_agents
@@ -35,9 +39,29 @@ MAPPING: dict[str, list[str]] = {
     "пояснительная записка": ["documentalist"],
     "геолог": ["technologist"],
     "карты залеган": ["technologist"],
+    # ключи по именам архивов (наследуются вложенными файлами без своего маппинга)
+    "книги по производству": ["technologist"],
+    "лышня": ["technologist"],
+    "статья": ["technologist"],
+    "прайс": ["estimator"],
 }
 
 _TEXT_EXT = {".txt", ".pdf", ".docx", ".xlsx", ".xlsm"}
+_ARCHIVE_EXT = {".rar", ".7z", ".zip"}
+
+
+def _find_7z() -> str | None:
+    """Найти 7z.exe (для распаковки .rar/.7z/.zip)."""
+    env = os.environ.get("SEVENZIP_PATH")
+    if env and Path(env).exists():
+        return env
+    found = shutil.which("7z") or shutil.which("7za")
+    if found:
+        return found
+    for cand in (r"C:\Program Files\7-Zip\7z.exe", r"C:\Program Files (x86)\7-Zip\7z.exe"):
+        if Path(cand).exists():
+            return cand
+    return None
 
 
 def _match_agents(filename: str) -> list[str]:
@@ -96,6 +120,61 @@ def _extract(path: Path, max_pdf_pages: int) -> str:
     return ""
 
 
+def _ingest_file(path: Path, industry: str, known_agents: set[str],
+                 max_pdf_pages: int, label: str, fallback_agents: list[str] | None = None) -> int:
+    """Ингест одного файла. Возвращает число добавленных чанков."""
+    agents = _match_agents(path.name) or (fallback_agents or [])
+    agents = [a for a in agents if a in known_agents]
+    if not agents:
+        print(f"  — {label}: пропуск (нет маппинга/агенты не из отрасли)")
+        return 0
+    if path.suffix.lower() not in _TEXT_EXT:
+        print(f"  — {label}: пропуск (формат {path.suffix} не поддерживается)")
+        return 0
+    try:
+        text = _extract(path, max_pdf_pages)
+    except Exception as e:
+        print(f"  ✗ {label}: ошибка чтения — {type(e).__name__}: {e}")
+        return 0
+    if len(text.strip()) < 50:
+        print(f"  — {label}: пропуск (нет текстового слоя — вероятно скан, нужен OCR)")
+        return 0
+
+    total = 0
+    for agent in agents:
+        added = add_text(text, agent, filename=path.name, industry=industry)
+        total += added
+        print(f"  ✓ {label} → {agent}: +{added} чанков")
+    return total
+
+
+def _ingest_archive(path: Path, industry: str, known_agents: set[str],
+                    max_pdf_pages: int, sevenzip: str | None) -> int:
+    """Распаковать архив (7z) и заингестить вложенные поддерживаемые файлы."""
+    if not sevenzip:
+        print(f"  — {path.name}: пропуск (нет 7-Zip; задайте SEVENZIP_PATH)")
+        return 0
+    archive_agents = _match_agents(path.name)  # наследуется вложенными без своего маппинга
+    tmp = Path(tempfile.mkdtemp(prefix="seed_arc_"))
+    try:
+        r = subprocess.run([sevenzip, "x", "-y", f"-o{tmp}", str(path)],
+                           capture_output=True, text=True)
+        if r.returncode != 0:
+            print(f"  ✗ {path.name}: ошибка распаковки 7z ({r.returncode})")
+            return 0
+        total = 0
+        inner = [p for p in tmp.rglob("*") if p.is_file()]
+        print(f"  ▷ {path.name}: распаковано файлов — {len(inner)}")
+        for f in inner:
+            if f.suffix.lower() not in _TEXT_EXT:
+                continue
+            total += _ingest_file(f, industry, known_agents, max_pdf_pages,
+                                  label=f"{path.name} ▸ {f.name}", fallback_agents=archive_agents)
+        return total
+    finally:
+        shutil.rmtree(tmp, ignore_errors=True)
+
+
 def seed_directory(directory: str, industry: str = DEFAULT_INDUSTRY, max_pdf_pages: int = 0) -> None:
     root = Path(directory)
     if not root.is_dir():
@@ -103,38 +182,19 @@ def seed_directory(directory: str, industry: str = DEFAULT_INDUSTRY, max_pdf_pag
         sys.exit(1)
 
     known_agents = set(get_agents(industry))
+    sevenzip = _find_7z()
     total_chunks = 0
-    print(f"Ингест в отрасль «{industry}». Папка: {root}\n")
+    print(f"Ингест в отрасль «{industry}». Папка: {root}")
+    print(f"7-Zip: {sevenzip or 'не найден (архивы будут пропущены)'}\n")
 
     for path in sorted(root.iterdir()):
         if not path.is_file():
             continue
-        agents = _match_agents(path.name)
-        if not agents:
-            print(f"  — {path.name}: пропуск (нет маппинга)")
-            continue
-        agents = [a for a in agents if a in known_agents]
-        if not agents:
-            print(f"  — {path.name}: пропуск (агенты не из отрасли «{industry}»)")
-            continue
-        if path.suffix.lower() not in _TEXT_EXT:
-            print(f"  — {path.name}: пропуск (формат {path.suffix} не поддерживается — архив/.doc)")
-            continue
-
-        try:
-            text = _extract(path, max_pdf_pages)
-        except Exception as e:
-            print(f"  ✗ {path.name}: ошибка чтения — {type(e).__name__}: {e}")
-            continue
-
-        if len(text.strip()) < 50:
-            print(f"  — {path.name}: пропуск (нет текстового слоя — вероятно скан, нужен OCR)")
-            continue
-
-        for agent in agents:
-            added = add_text(text, agent, filename=path.name, industry=industry)
-            total_chunks += added
-            print(f"  ✓ {path.name} → {agent}: +{added} чанков")
+        suffix = path.suffix.lower()
+        if suffix in _ARCHIVE_EXT:
+            total_chunks += _ingest_archive(path, industry, known_agents, max_pdf_pages, sevenzip)
+        else:
+            total_chunks += _ingest_file(path, industry, known_agents, max_pdf_pages, label=path.name)
 
     print(f"\nГотово. Всего добавлено чанков: {total_chunks}")
 
