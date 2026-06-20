@@ -46,7 +46,7 @@ MAPPING: dict[str, list[str]] = {
     "прайс": ["estimator"],
 }
 
-_TEXT_EXT = {".txt", ".pdf", ".docx", ".xlsx", ".xlsm"}
+_TEXT_EXT = {".txt", ".pdf", ".docx", ".xlsx", ".xlsm", ".doc"}
 _ARCHIVE_EXT = {".rar", ".7z", ".zip"}
 
 
@@ -110,6 +110,43 @@ def _xlsx_text(path: Path) -> str:
         wb.close()
 
 
+def _doc_text_via_word(path: Path) -> str:
+    """
+    Конвертировать устаревший .doc в текст через Microsoft Word (COM, Windows).
+    Возвращает "" если pywin32/Word недоступны — тогда файл просто пропускается.
+    """
+    try:
+        import pythoncom
+        import win32com.client
+    except ImportError:
+        return ""
+    pythoncom.CoInitialize()
+    word = None
+    try:
+        word = win32com.client.Dispatch("Word.Application")
+        word.Visible = False
+        word.DisplayAlerts = 0
+        doc = word.Documents.Open(
+            str(path), ReadOnly=True, AddToRecentFiles=False, ConfirmConversions=False
+        )
+        try:
+            return doc.Content.Text or ""
+        finally:
+            doc.Close(False)
+    except Exception:
+        return ""
+    finally:
+        if word is not None:
+            try:
+                word.Quit()
+            except Exception:
+                pass
+        try:
+            pythoncom.CoUninitialize()
+        except Exception:
+            pass
+
+
 def _extract(path: Path, max_pdf_pages: int) -> str:
     suffix = path.suffix.lower()
     if suffix == ".txt":
@@ -120,6 +157,8 @@ def _extract(path: Path, max_pdf_pages: int) -> str:
         return _docx_text(path)
     if suffix in (".xlsx", ".xlsm"):
         return _xlsx_text(path)
+    if suffix == ".doc":
+        return _doc_text_via_word(path)
     return ""
 
 

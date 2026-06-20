@@ -50,3 +50,11 @@ def test_extract_dispatch_txt():
         p = Path(td) / "note.txt"
         p.write_text("привет мир", encoding="utf-8")
         assert seed._extract(p, 0) == "привет мир"
+
+
+def test_doc_routed_to_word(monkeypatch):
+    # .doc должен идти через Word-конвертер (на машине без Word — мягкий пропуск)
+    assert ".doc" in seed._TEXT_EXT
+    monkeypatch.setattr(seed, "_doc_text_via_word", lambda p: "текст из word")
+    assert seed._extract(Path("Регламент.doc"), 0) == "текст из word"
+

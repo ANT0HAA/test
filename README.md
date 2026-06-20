@@ -203,9 +203,10 @@ CI (GitHub Actions, `.github/workflows/ci.yml`) гоняет backend-тесты 
 cd backend && source .venv/Scripts/activate   # Windows: .venv\Scripts\activate
 python -m knowledge.seed "C:\путь\к\Документы" --industry ceramics --max-pdf-pages 0
 ```
-Поддерживаются `txt / pdf / docx / xlsx`. Сканы без текстового слоя (нужен OCR),
-старый `.doc` и архивы (`.rar/.7z`) пропускаются с пояснением. `--max-pdf-pages 0`
-— весь документ; иначе первые N страниц (полезно для больших справочников).
+Поддерживаются `txt / pdf / docx / xlsx`, архивы `rar / 7z / zip` (через 7-Zip,
+рекурсивно), а также старый `.doc` — если установлен Microsoft Word (конвертация
+через COM на Windows). Сканы без текстового слоя пропускаются (нужен OCR).
+`--max-pdf-pages 0` — весь документ; иначе первые N страниц (для больших справочников).
 Скан-PDF (карты залеганий, геологические отчёты) предварительно прогоните через
 OCR или сохраните как текстовый PDF/DOCX.
 
