@@ -87,6 +87,21 @@ async def test_self_answer_when_no_plan(monkeypatch):
     assert _ai_names(final) == ["orchestrator"]
 
 
+async def test_context_block_project_priority(monkeypatch):
+    monkeypatch.setattr(G, "project_search", lambda q, pid: "ПРОЕКТНЫЕ ДАННЫЕ")
+    monkeypatch.setattr(G, "search", lambda *a, **k: "ПРИМЕР ИЗ БЗ")
+
+    async def _mem(*a, **k):
+        return "ЗАМЕТКА"
+    monkeypatch.setattr(G, "_memory_context", _mem)
+
+    block = await G._context_block("p1", "technologist", "ceramics", "запрос")
+    assert "ПРОЕКТНЫЕ ДАННЫЕ" in block and "ПРИОРИТЕТ" in block
+    assert "ПРИМЕР ИЗ БЗ" in block and "примеры" in block.lower()
+    # материалы проекта идут раньше базы знаний
+    assert block.index("ПРОЕКТНЫЕ ДАННЫЕ") < block.index("ПРИМЕР ИЗ БЗ")
+
+
 async def test_other_industry_plan(monkeypatch):
     plan = PlanDecision(reasoning="r", action="delegate",
                         plan=[PlanStep(agent="technologist", task="состав бетона")])

@@ -27,8 +27,20 @@ from config import settings
 from agents.definitions import (
     get_agents, routing_keywords, all_agent_ids, DEFAULT_INDUSTRY,
 )
-from knowledge.chroma import search
+from knowledge.chroma import search, project_search
 from storage.db import get_memory
+
+
+# Установка для всех агентов: БЗ — ориентир, а не догма; проект — индивидуально.
+_DESIGN_GUIDANCE = (
+    "\n\nПРИНЦИПЫ РАБОТЫ:\n"
+    "• Проектируй ИНДИВИДУАЛЬНО под конкретную задачу проекта.\n"
+    "• База знаний — это ПРИМЕРЫ и справочные ориентиры, а НЕ строгие требования; "
+    "не копируй из неё дословно, адаптируй под задачу.\n"
+    "• Если по проекту присланы материалы (готовый проект) — это ПРИОРИТЕТ: "
+    "работай с тем, что прислано, дорабатывай именно его, а базу знаний используй "
+    "лишь как вспомогательную справку."
+)
 
 
 # ─── Константы межагентного режима ─────────────────────────────────────
@@ -74,6 +86,35 @@ async def _memory_context(project_id: str, agent_id: str) -> str:
 
 def _last_human(messages: list[BaseMessage]) -> str:
     return next((m.content for m in reversed(messages) if isinstance(m, HumanMessage)), "")
+
+
+async def _context_block(project_id: str, agent_id: str, industry: str, query: str) -> str:
+    """
+    Собрать контекст для подмеса в системный промпт с приоритетами:
+      1) материалы текущего проекта (присланный готовый проект) — главный приоритет;
+      2) база знаний агента — как примеры/ориентир;
+      3) запомненные решения по проекту.
+    """
+    blocks: list[str] = []
+
+    proj = project_search(query, project_id) if project_id else ""
+    if proj:
+        blocks.append(
+            "--- Материалы текущего проекта (ПРИОРИТЕТ: работай по ним, дорабатывай присланное) ---\n"
+            + proj
+        )
+
+    kb = search(query, agent_id, industry)
+    if kb:
+        blocks.append(
+            "--- База знаний: примеры и ориентиры (НЕ строгие требования) ---\n" + kb
+        )
+
+    mem = await _memory_context(project_id, agent_id)
+    if mem:
+        blocks.append("--- Запомненные решения по проекту ---\n" + mem)
+
+    return "\n\n".join(blocks)
 
 
 # ─── LLM factory ──────────────────────────────────────────────────────
@@ -271,14 +312,11 @@ async def orchestrator_router(state: BureauState) -> dict:
 async def orchestrator_respond(state: BureauState) -> dict:
     """Оркестратор отвечает пользователю напрямую."""
     industry = _industry_of(state)
-    kb_context = search(_last_human(state["messages"]), "orchestrator", industry)
-    system = get_agents(industry)["orchestrator"]["system_prompt"]
-    if kb_context:
-        system += f"\n\n--- Контекст из базы знаний ---\n{kb_context}"
-
-    memory_context = await _memory_context(state.get("project_id", ""), "orchestrator")
-    if memory_context:
-        system += f"\n\n--- Запомненные решения по проекту ---\n{memory_context}"
+    project_id = state.get("project_id", "")
+    system = get_agents(industry)["orchestrator"]["system_prompt"] + _DESIGN_GUIDANCE
+    ctx = await _context_block(project_id, "orchestrator", industry, _last_human(state["messages"]))
+    if ctx:
+        system += "\n\n" + ctx
 
     messages = [SystemMessage(content=system)] + list(state["messages"])
     content = await _stream_text(messages)
@@ -306,16 +344,11 @@ def _make_specialist(agent_id: str):
             state.get("delegated_task") or _last_human(state["messages"])
         )
 
-        # База знаний агента
-        kb_context = search(task, agent_id, industry)
-        system = agent_def["system_prompt"]
-        if kb_context:
-            system += f"\n\n--- Контекст из базы знаний ---\n{kb_context}"
-
-        # Память проекта
-        memory_context = await _memory_context(state.get("project_id", ""), agent_id)
-        if memory_context:
-            system += f"\n\n--- Запомненные решения по проекту ---\n{memory_context}"
+        # Контекст: материалы проекта (приоритет) + БЗ (примеры) + память
+        system = agent_def["system_prompt"] + _DESIGN_GUIDANCE
+        ctx = await _context_block(state.get("project_id", ""), agent_id, industry, task)
+        if ctx:
+            system += "\n\n" + ctx
 
         messages = [SystemMessage(content=system)] + list(state["messages"])
 
@@ -361,12 +394,10 @@ async def norm_control_review(state: BureauState) -> dict:
           f"«ВЕРДИКТ: {VERDICT_REWORK}» — если есть замечания, которые специалисты должны устранить."
     )
 
-    kb_context = search(_last_human(state["messages"]), "norm_control", industry)
-    if kb_context:
-        system += f"\n\n--- Контекст из базы знаний ---\n{kb_context}"
-    memory_context = await _memory_context(state.get("project_id", ""), "norm_control")
-    if memory_context:
-        system += f"\n\n--- Запомненные решения по проекту ---\n{memory_context}"
+    ctx = await _context_block(state.get("project_id", ""), "norm_control", industry,
+                               _last_human(state["messages"]))
+    if ctx:
+        system += "\n\n" + ctx
 
     messages = [SystemMessage(content=system)] + list(state["messages"]) + [
         HumanMessage(content="Проверь результаты работы специалистов и вынеси вердикт.")

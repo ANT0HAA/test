@@ -201,6 +201,30 @@ class KompasClient:
             seg.Update()
 
     @staticmethod
+    def _axes(cont, x: float, y: float, w: float, h: float) -> None:
+        """Осевые линии (штрихпунктир, стиль «осевая») по центру прямоугольника."""
+        ext = max(w, h) * 0.1
+        ls = cont.LineSegments
+        for x1, y1, x2, y2 in [(x + w / 2, y - ext, x + w / 2, y + h + ext),
+                               (x - ext, y + h / 2, x + w + ext, y + h / 2)]:
+            seg = ls.Add()
+            seg.X1, seg.Y1, seg.X2, seg.Y2 = x1, y1, x2, y2
+            seg.Style = 3  # осевая
+            seg.Update()
+
+    @staticmethod
+    def _dimension(sym, x1: float, y1: float, x2: float, y2: float,
+                   x3: float, y3: float, orient: int) -> None:
+        """Линейный размер между (x1,y1)-(x2,y2); (x3,y3) — позиция размерной линии."""
+        d = sym.LineDimensions.Add()
+        d.X1, d.Y1, d.X2, d.Y2, d.X3, d.Y3 = x1, y1, x2, y2, x3, y3
+        try:
+            d.Orientation = orient  # 0 — горизонтальный, 1 — вертикальный
+        except Exception:
+            pass
+        d.Update()
+
+    @staticmethod
     def _label(cont, cast_to, x: float, y: float, text: str, height: float = 3.5) -> None:
         t = cont.DrawingTexts.Add()
         t.X, t.Y, t.Height = x, y, height
@@ -219,15 +243,20 @@ class KompasClient:
             doc2d = CastTo(doc, "IKompasDocument2D")
             view = doc2d.ViewsAndLayersManager.Views.ActiveView
             cont = CastTo(view, "IDrawingContainer")
+            sym = CastTo(view, "ISymbols2DContainer")
 
             if req.kind == "site_plan":
                 self._draw_site_plan(cont, CastTo, req.buildings)
                 stamp_title = req.title if req.title != "План фундамента" else "Генплан кирпичного завода"
             else:
-                # Прямоугольный контур (план фундамента / габарит)
-                self._rect(cont, 0, 0, float(req.width_mm), float(req.length_mm))
-                self._label(cont, CastTo, 0, -8000 if req.length_mm > 1000 else -10,
-                            f"{req.title}  {req.width_mm:.0f}×{req.length_mm:.0f} мм", height=5)
+                # План корпуса/фундамента: контур + оси + размерные линии (реальные мм)
+                w, h = float(req.width_mm), float(req.length_mm)
+                self._rect(cont, 0, 0, w, h)
+                self._axes(cont, 0, 0, w, h)
+                off = max(w, h) * 0.18
+                self._dimension(sym, 0, 0, w, 0, w / 2, -off, 0)   # ширина (снизу)
+                self._dimension(sym, 0, 0, 0, h, -off, h / 2, 1)   # длина (слева)
+                self._label(cont, CastTo, 0, h + off * 0.4, req.title, height=max(w, h) * 0.03)
                 stamp_title = req.title
 
             # Основная надпись (штамп)
@@ -289,5 +318,6 @@ class KompasClient:
                 else [(n, s, x, y, w, h) for n, s, x, y, w, h in self._SITE_BUILDINGS])
         for name, size, x, y, w, h in rows:
             self._rect(cont, x, y, w, h)                       # контур корпуса
+            self._axes(cont, x, y, w, h)                       # разбивочные оси корпуса
             self._label(cont, cast_to, x + 2, y + h - 6, name, height=3.5)
             self._label(cont, cast_to, x + 2, y + 2, f"{size}", height=3.0)

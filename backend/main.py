@@ -29,7 +29,7 @@ from agents.definitions import (
     load_customizations, _BUILTIN_INDUSTRIES,
 )
 from graph.graph import get_graph, reset_graph, BureauState, GRAPH_RECURSION_LIMIT
-from knowledge.chroma import add_file, list_collections, collection_stats
+from knowledge.chroma import add_file, add_project_file, list_collections, collection_stats
 from models.schemas import (
     UploadResponse, AgentInfo, HealthResponse,
     ProjectCreate, ProjectInfo, ProjectDetail, ProjectMessageInfo, MemoryNoteCreate,
@@ -500,6 +500,27 @@ async def get_project(project_id: str):
             for r in rows
         ],
     )
+
+
+@app.post("/api/projects/{project_id}/materials", response_model=UploadResponse)
+async def upload_project_materials(project_id: str, file: UploadFile = File(...)):
+    """
+    Загрузить готовый проект/материалы в КОНКРЕТНЫЙ проект. Эти материалы имеют
+    приоритет над базой знаний — агенты дорабатывают именно их.
+    """
+    if not await storage.get_project(project_id):
+        raise HTTPException(status_code=404, detail="Проект не найден")
+    allowed = {".txt", ".pdf", ".docx", ".xlsx", ".xlsm"}
+    suffix = Path(file.filename or "").suffix.lower()
+    if suffix not in allowed:
+        raise HTTPException(status_code=400, detail=f"Поддерживаемые форматы: {', '.join(allowed)}")
+    save_path = Path(settings.uploads_path) / f"proj_{project_id}_{file.filename}"
+    save_path.write_bytes(await file.read())
+    try:
+        chunks = await add_project_file(str(save_path), project_id)
+    except ValueError as e:
+        raise HTTPException(status_code=422, detail=str(e))
+    return UploadResponse(ok=True, chunks_added=chunks, agent="(проект)", filename=file.filename or "")
 
 
 @app.post("/api/projects/{project_id}/memory")

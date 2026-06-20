@@ -41,6 +41,56 @@ def list_collections() -> list[str]:
     return [c.name for c in get_client().list_collections()]
 
 
+def get_project_collection(project_id: str) -> chromadb.Collection:
+    """Коллекция материалов конкретного проекта (присланные/готовые проекты)."""
+    ef = embedding_functions.DefaultEmbeddingFunction()
+    return get_client().get_or_create_collection(
+        name=f"proj_{project_id}",
+        embedding_function=ef,
+        metadata={"project_id": project_id},
+    )
+
+
+def project_search(query: str, project_id: str, n_results: int = 5) -> str:
+    """Поиск по материалам проекта. Пусто, если материалов нет."""
+    if not project_id:
+        return ""
+    col = get_project_collection(project_id)
+    if col.count() == 0:
+        return ""
+    n_results = min(n_results, col.count())
+    results = col.query(query_texts=[query], n_results=n_results)
+    docs = results.get("documents", [[]])[0]
+    metas = results.get("metadatas", [[]])[0]
+    if not docs:
+        return ""
+    return "\n\n---\n\n".join(
+        f"[{(m or {}).get('source', '')}]\n{d}" for d, m in zip(docs, metas)
+    )
+
+
+async def add_project_file(file_path: str, project_id: str) -> int:
+    """Добавить файл в материалы проекта (txt/pdf/docx/xlsx)."""
+    text = _read_file_text(Path(file_path))
+    chunks = _chunk_text(text)
+    if not chunks:
+        return 0
+    col = get_project_collection(project_id)
+    existing = set(col.get()["ids"])
+    name = Path(file_path).name
+    ids, docs, metas = [], [], []
+    for i, chunk in enumerate(chunks):
+        doc_id = f"{name}_{i}"
+        if doc_id in existing:
+            continue
+        ids.append(doc_id)
+        docs.append(chunk)
+        metas.append({"source": name, "chunk": i})
+    if ids:
+        col.add(ids=ids, documents=docs, metadatas=metas)
+    return len(ids)
+
+
 def collection_stats(agent_name: str, industry: str = DEFAULT_INDUSTRY) -> dict:
     """Статистика базы знаний агента: число фрагментов и список файлов-источников."""
     col = get_collection(agent_name, industry)
@@ -104,31 +154,25 @@ def add_text(
     return len(ids)
 
 
-async def add_file(file_path: str, agent_name: str, industry: str = DEFAULT_INDUSTRY) -> int:
-    """Прочитать файл (txt/pdf/docx) и добавить в базу агента отрасли."""
-    path = Path(file_path)
+def _read_file_text(path: Path) -> str:
+    """Извлечь текст из файла (txt/pdf/docx/xlsx). Бросает ValueError для .doc и прочих."""
     suffix = path.suffix.lower()
-    text = ""
 
     if suffix == ".txt":
-        text = path.read_text(encoding="utf-8", errors="replace")
+        return path.read_text(encoding="utf-8", errors="replace")
 
-    elif suffix == ".pdf":
+    if suffix == ".pdf":
         try:
             import PyPDF2
-
             with open(path, "rb") as f:
                 reader = PyPDF2.PdfReader(f)
-                text = "\n".join(
-                    page.extract_text() or "" for page in reader.pages
-                )
+                return "\n".join(page.extract_text() or "" for page in reader.pages)
         except Exception as e:
             raise ValueError(f"Ошибка чтения PDF: {e}") from e
 
-    elif suffix == ".docx":
+    if suffix == ".docx":
         try:
             from docx import Document
-
             doc = Document(str(path))
             parts = [p.text for p in doc.paragraphs if p.text.strip()]
             for table in doc.tables:
@@ -136,17 +180,16 @@ async def add_file(file_path: str, agent_name: str, industry: str = DEFAULT_INDU
                     cells = [c.text.strip() for c in row.cells if c.text.strip()]
                     if cells:
                         parts.append(" | ".join(cells))
-            text = "\n".join(parts)
+            return "\n".join(parts)
         except Exception as e:
             raise ValueError(f"Ошибка чтения DOCX: {e}") from e
 
-    elif suffix == ".doc":
+    if suffix == ".doc":
         raise ValueError("Формат .doc (старый Word) не поддерживается — пересохраните в .docx")
 
-    elif suffix in (".xlsx", ".xlsm"):
+    if suffix in (".xlsx", ".xlsm"):
         try:
             from openpyxl import load_workbook
-
             wb = load_workbook(str(path), read_only=True, data_only=True)
             try:
                 lines: list[str] = []
@@ -156,16 +199,19 @@ async def add_file(file_path: str, agent_name: str, industry: str = DEFAULT_INDU
                         cells = [str(c).strip() for c in row if c not in (None, "")]
                         if cells:
                             lines.append(" | ".join(cells))
-                text = "\n".join(lines)
+                return "\n".join(lines)
             finally:
                 wb.close()
         except Exception as e:
             raise ValueError(f"Ошибка чтения XLSX: {e}") from e
 
-    else:
-        raise ValueError(f"Неподдерживаемый тип файла: {suffix}")
+    raise ValueError(f"Неподдерживаемый тип файла: {suffix}")
 
-    return add_text(text, agent_name, filename=path.name, industry=industry)
+
+async def add_file(file_path: str, agent_name: str, industry: str = DEFAULT_INDUSTRY) -> int:
+    """Прочитать файл (txt/pdf/docx/xlsx) и добавить в базу агента отрасли."""
+    path = Path(file_path)
+    return add_text(_read_file_text(path), agent_name, filename=path.name, industry=industry)
 
 
 # ─── Search ────────────────────────────────────────────────────────────
