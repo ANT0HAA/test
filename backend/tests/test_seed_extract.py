@@ -58,3 +58,16 @@ def test_doc_routed_to_word(monkeypatch):
     monkeypatch.setattr(seed, "_doc_text_via_word", lambda p: "текст из word")
     assert seed._extract(Path("Регламент.doc"), 0) == "текст из word"
 
+
+def test_pdf_ocr_gating(monkeypatch):
+    # Скан-PDF (пустой текстовый слой): OCR применяется только когда включён и доступен
+    monkeypatch.setattr(seed, "_pdf_text", lambda p, n: "")  # нет текста
+    monkeypatch.setattr(seed, "_ocr_available", lambda: True)
+    monkeypatch.setattr(seed, "_ocr_pdf", lambda p, n: "РАСПОЗНАННЫЙ ТЕКСТ")
+
+    monkeypatch.setattr(seed, "_OCR_ENABLED", False)
+    assert seed._extract(Path("scan.pdf"), 0) == ""          # OCR выключен → пусто
+
+    monkeypatch.setattr(seed, "_OCR_ENABLED", True)
+    assert seed._extract(Path("scan.pdf"), 0) == "РАСПОЗНАННЫЙ ТЕКСТ"  # OCR включён
+

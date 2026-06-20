@@ -49,6 +49,43 @@ MAPPING: dict[str, list[str]] = {
 _TEXT_EXT = {".txt", ".pdf", ".docx", ".xlsx", ".xlsm", ".doc"}
 _ARCHIVE_EXT = {".rar", ".7z", ".zip"}
 
+# OCR для скан-PDF — опционально (флаг --ocr). Требует Tesseract + pymupdf + pytesseract.
+_OCR_ENABLED = False
+_OCR_LANG = "rus+eng"
+
+
+def _ocr_available() -> bool:
+    """OCR доступен только если установлены pymupdf, pytesseract и бинарь Tesseract."""
+    try:
+        import fitz  # noqa: F401  (pymupdf)
+        import pytesseract
+    except ImportError:
+        return False
+    try:
+        pytesseract.get_tesseract_version()
+        return True
+    except Exception:
+        return False
+
+
+def _ocr_pdf(path: Path, max_pages: int) -> str:
+    """Распознать текст скан-PDF: рендер страниц (pymupdf) → Tesseract."""
+    import fitz
+    import pytesseract
+    from PIL import Image
+
+    doc = fitz.open(str(path))
+    try:
+        last = len(doc) if max_pages <= 0 else min(max_pages, len(doc))
+        parts: list[str] = []
+        for i in range(last):
+            pix = doc[i].get_pixmap(dpi=200)
+            img = Image.frombytes("RGB", (pix.width, pix.height), pix.samples)
+            parts.append(pytesseract.image_to_string(img, lang=_OCR_LANG))
+        return "\n".join(parts)
+    finally:
+        doc.close()
+
 
 def _find_7z() -> str | None:
     """Найти 7z.exe (для распаковки .rar/.7z/.zip)."""
@@ -152,7 +189,11 @@ def _extract(path: Path, max_pdf_pages: int) -> str:
     if suffix == ".txt":
         return path.read_text(encoding="utf-8", errors="replace")
     if suffix == ".pdf":
-        return _pdf_text(path, max_pdf_pages)
+        text = _pdf_text(path, max_pdf_pages)
+        # Скан без текстового слоя → OCR (если включён и доступен)
+        if len(text.strip()) < 50 and _OCR_ENABLED and _ocr_available():
+            return _ocr_pdf(path, max_pdf_pages)
+        return text
     if suffix == ".docx":
         return _docx_text(path)
     if suffix in (".xlsx", ".xlsm"):
@@ -217,17 +258,23 @@ def _ingest_archive(path: Path, industry: str, known_agents: set[str],
         shutil.rmtree(tmp, ignore_errors=True)
 
 
-def seed_directory(directory: str, industry: str = DEFAULT_INDUSTRY, max_pdf_pages: int = 0) -> None:
+def seed_directory(directory: str, industry: str = DEFAULT_INDUSTRY,
+                   max_pdf_pages: int = 0, ocr: bool = False) -> None:
     root = Path(directory)
     if not root.is_dir():
         print(f"Папка не найдена: {root}")
         sys.exit(1)
 
+    global _OCR_ENABLED
+    _OCR_ENABLED = ocr
+
     known_agents = set(get_agents(industry))
     sevenzip = _find_7z()
     total_chunks = 0
+    ocr_state = ("включён" if _ocr_available() else "запрошен, но НЕ доступен "
+                 "(нужны Tesseract + pymupdf + pytesseract)") if ocr else "выключен"
     print(f"Ингест в отрасль «{industry}». Папка: {root}")
-    print(f"7-Zip: {sevenzip or 'не найден (архивы будут пропущены)'}\n")
+    print(f"7-Zip: {sevenzip or 'не найден (архивы будут пропущены)'} | OCR: {ocr_state}\n")
 
     for path in sorted(root.iterdir()):
         if not path.is_file():
@@ -247,8 +294,10 @@ def main() -> None:
     parser.add_argument("--industry", default=DEFAULT_INDUSTRY, help="Отрасль (по умолчанию ceramics)")
     parser.add_argument("--max-pdf-pages", type=int, default=0,
                         help="Лимит страниц PDF (0 — без ограничения)")
+    parser.add_argument("--ocr", action="store_true",
+                        help="OCR скан-PDF без текстового слоя (нужны Tesseract + pymupdf + pytesseract)")
     args = parser.parse_args()
-    seed_directory(args.directory, args.industry, args.max_pdf_pages)
+    seed_directory(args.directory, args.industry, args.max_pdf_pages, args.ocr)
 
 
 if __name__ == "__main__":
