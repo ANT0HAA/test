@@ -61,12 +61,12 @@ export default function UploadModal({ agents, defaultAgent, industry, onClose }:
 
           <div>
             <label className="block text-xs text-muted mb-1.5 font-mono">
-              Документ (PDF, DOCX, TXT)
+              Документ (PDF, DOCX, XLSX, TXT)
             </label>
             <input
               ref={inputRef}
               type="file"
-              accept=".pdf,.docx,.doc,.txt"
+              accept=".pdf,.docx,.xlsx,.xlsm,.txt"
               onChange={(e) => {
                 setFile(e.target.files?.[0] ?? null)
                 setStatus('idle')

@@ -257,7 +257,7 @@ async def upload_document(
     if agent not in get_agents(industry):
         raise HTTPException(status_code=400, detail=f"Неизвестный агент «{agent}» в отрасли «{industry}»")
 
-    allowed = {".txt", ".pdf", ".docx", ".doc"}
+    allowed = {".txt", ".pdf", ".docx", ".xlsx", ".xlsm"}
     suffix = Path(file.filename or "").suffix.lower()
     if suffix not in allowed:
         raise HTTPException(

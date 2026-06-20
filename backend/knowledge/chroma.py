@@ -110,14 +110,39 @@ async def add_file(file_path: str, agent_name: str, industry: str = DEFAULT_INDU
         except Exception as e:
             raise ValueError(f"Ошибка чтения PDF: {e}") from e
 
-    elif suffix in (".docx", ".doc"):
+    elif suffix == ".docx":
         try:
             from docx import Document
 
             doc = Document(str(path))
-            text = "\n".join(p.text for p in doc.paragraphs if p.text.strip())
+            parts = [p.text for p in doc.paragraphs if p.text.strip()]
+            for table in doc.tables:
+                for row in table.rows:
+                    cells = [c.text.strip() for c in row.cells if c.text.strip()]
+                    if cells:
+                        parts.append(" | ".join(cells))
+            text = "\n".join(parts)
         except Exception as e:
             raise ValueError(f"Ошибка чтения DOCX: {e}") from e
+
+    elif suffix == ".doc":
+        raise ValueError("Формат .doc (старый Word) не поддерживается — пересохраните в .docx")
+
+    elif suffix in (".xlsx", ".xlsm"):
+        try:
+            from openpyxl import load_workbook
+
+            wb = load_workbook(str(path), read_only=True, data_only=True)
+            lines: list[str] = []
+            for ws in wb.worksheets:
+                lines.append(f"[Лист: {ws.title}]")
+                for row in ws.iter_rows(values_only=True):
+                    cells = [str(c).strip() for c in row if c not in (None, "")]
+                    if cells:
+                        lines.append(" | ".join(cells))
+            text = "\n".join(lines)
+        except Exception as e:
+            raise ValueError(f"Ошибка чтения XLSX: {e}") from e
 
     else:
         raise ValueError(f"Неподдерживаемый тип файла: {suffix}")
