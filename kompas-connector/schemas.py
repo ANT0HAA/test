@@ -43,6 +43,13 @@ class ReadResult(BaseModel):
     specification: list[SpecRow] = []
 
 
+class BuildingSpec(BaseModel):
+    """Корпус/здание для генплана."""
+    name: str
+    width_m: float = 18.0
+    length_m: float = 48.0
+
+
 class GenerateRequest(BaseModel):
     """Параметры генерации простого чертежа."""
     kind: Literal["foundation", "rectangle", "site_plan"] = "foundation"
@@ -51,3 +58,4 @@ class GenerateRequest(BaseModel):
     title: str = "План фундамента"      # наименование изделия (в штамп)
     project: str = ""                   # обозначение/проект (в штамп)
     designer: str = "AI Конструкторское бюро"
+    buildings: list[BuildingSpec] = []  # для kind=site_plan: свой состав корпусов

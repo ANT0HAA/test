@@ -101,6 +101,12 @@ class ExportRequest(BaseModel):
 
 # ─── Интеграция с Компас-3D (проксируется в kompas-connector) ──────────
 
+class BuildingSpec(BaseModel):
+    name: str
+    width_m: float = 18.0
+    length_m: float = 48.0
+
+
 class KompasGenerateRequest(BaseModel):
     kind: Literal["foundation", "rectangle", "site_plan"] = "foundation"
     width_mm: float = 6000.0
@@ -108,6 +114,14 @@ class KompasGenerateRequest(BaseModel):
     title: str = "План фундамента"
     project: str = ""
     designer: str = "AI Конструкторское бюро"
+    buildings: list[BuildingSpec] = []
+
+
+class KompasDesignRequest(BaseModel):
+    """Бриф для генплана: Конструктор предложит состав корпусов, Компас отрисует."""
+    brief: str = "кирпичный завод"
+    project: str = ""
+    title: str = "Генплан кирпичного завода"
 
 
 # ─── Управление агентами и отраслями (admin UI) ───────────────────────

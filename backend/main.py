@@ -33,8 +33,10 @@ from knowledge.chroma import add_file, list_collections, collection_stats
 from models.schemas import (
     UploadResponse, AgentInfo, HealthResponse,
     ProjectCreate, ProjectInfo, ProjectDetail, ProjectMessageInfo, MemoryNoteCreate,
-    ExportRequest, KompasGenerateRequest, IndustryCreate, AgentUpsert,
+    ExportRequest, KompasGenerateRequest, KompasDesignRequest, BuildingSpec,
+    IndustryCreate, AgentUpsert,
 )
+from pydantic import BaseModel
 from storage import db as storage
 from export import build_document
 
@@ -569,6 +571,87 @@ async def kompas_read(file: UploadFile = File(...)):
         raise HTTPException(status_code=r.status_code,
                             detail=_connector_error(r))
     return r.json()
+
+
+# Типовой состав корпусов кирпичного завода (откат, если LLM недоступен)
+_DEFAULT_BUILDINGS = [
+    BuildingSpec(name="Склад сырья", width_m=18, length_m=36),
+    BuildingSpec(name="Подготовительный цех", width_m=24, length_m=48),
+    BuildingSpec(name="Формовочный цех", width_m=24, length_m=72),
+    BuildingSpec(name="Сушильный корпус", width_m=18, length_m=96),
+    BuildingSpec(name="Обжигательный корпус", width_m=18, length_m=120),
+    BuildingSpec(name="Склад готовой продукции", width_m=36, length_m=60),
+]
+
+
+class _BuildingLLM(BaseModel):
+    name: str
+    width_m: float = 18.0
+    length_m: float = 48.0
+
+
+class _BuildingListLLM(BaseModel):
+    buildings: list[_BuildingLLM] = []
+
+
+async def _design_buildings(brief: str) -> list[BuildingSpec]:
+    """Конструктор (LLM) предлагает состав корпусов по брифу. Откат — типовой состав."""
+    try:
+        from graph.graph import _llm
+        from knowledge.chroma import search
+        from langchain_core.messages import SystemMessage, HumanMessage
+
+        ctx = search(brief, "builder", "ceramics")
+        system = (
+            "Ты Конструктор кирпичного завода. По заданию предложи состав основных "
+            "корпусов и зданий (от 4 до 8). Для каждого укажи name (рус.), width_m и "
+            "length_m — реалистичные габариты в метрах. Ответь СТРОГО JSON."
+            + (f"\n\nКонтекст из базы знаний:\n{ctx[:2000]}" if ctx else "")
+        )
+        llm = _llm(streaming=False).with_structured_output(_BuildingListLLM)
+        res: _BuildingListLLM = await llm.ainvoke(
+            [SystemMessage(content=system), HumanMessage(content=brief)]
+        )
+        skip = ("площадк", "территор", "участок", "генплан")
+        items = [
+            BuildingSpec(
+                name=b.name.strip(),
+                width_m=min(max(b.width_m, 6.0), 60.0),     # клэмп до реалистичных
+                length_m=min(max(b.length_m, 12.0), 180.0),
+            )
+            for b in res.buildings
+            if b.name and b.name.strip() and not any(s in b.name.lower() for s in skip)
+        ][:8]
+        if items:
+            return items
+    except Exception:
+        log.info("Состав корпусов через LLM не получен — откат на типовой", exc_info=True)
+    return list(_DEFAULT_BUILDINGS)
+
+
+@app.post("/api/kompas/design")
+async def kompas_design(payload: KompasDesignRequest):
+    """Бюро проектирует генплан: Конструктор → состав корпусов → Компас рисует .cdw."""
+    import httpx
+    buildings = await _design_buildings(payload.brief)
+    url = settings.kompas_connector_url.rstrip("/")
+    gen = {
+        "kind": "site_plan", "title": payload.title, "project": payload.project,
+        "designer": "AI Конструкторское бюро",
+        "buildings": [b.model_dump() for b in buildings],
+    }
+    try:
+        async with httpx.AsyncClient(timeout=180.0) as client:
+            r = await client.post(f"{url}/generate", json=gen)
+    except Exception:
+        raise HTTPException(status_code=503, detail=_KOMPAS_DOWN)
+    if r.status_code >= 400:
+        raise HTTPException(status_code=r.status_code, detail=_connector_error(r))
+    headers = {
+        "Content-Disposition": 'attachment; filename="site_plan.cdw"',
+        "X-Buildings-Count": str(len(buildings)),
+    }
+    return Response(content=r.content, media_type="application/octet-stream", headers=headers)
 
 
 @app.post("/api/kompas/generate")

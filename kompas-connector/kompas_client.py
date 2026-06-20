@@ -221,7 +221,7 @@ class KompasClient:
             cont = CastTo(view, "IDrawingContainer")
 
             if req.kind == "site_plan":
-                self._draw_site_plan(cont, CastTo)
+                self._draw_site_plan(cont, CastTo, req.buildings)
                 stamp_title = req.title if req.title != "План фундамента" else "Генплан кирпичного завода"
             else:
                 # Прямоугольный контур (план фундамента / габарит)
@@ -262,11 +262,32 @@ class KompasClient:
         ("Обжигательный корпус", "18×120", 120, 55, 135, 50),
     ]
 
-    def _draw_site_plan(self, cont, cast_to) -> None:
-        # Граница участка
-        self._rect(cont, 0, 0, 285, 200, style=3)  # тонкая/штриховая граница площадки
+    @staticmethod
+    def _layout(buildings) -> list[tuple]:
+        """Авто-раскладка корпусов на листе (полочная упаковка), масштаб под габариты.
+        Возвращает (название, размер, x, y, w, h) в мм на листе."""
+        sheet_w, top, margin, gap = 285.0, 188.0, 8.0, 14.0
+        max_len = max((b.length_m for b in buildings), default=100.0) or 100.0
+        k = 130.0 / max_len            # длиннейший корпус → ~130 мм
+        placed, x, y_top, row_h = [], margin, top, 0.0
+        for b in buildings:
+            w, h = max(b.length_m * k, 12.0), max(b.width_m * k, 8.0)
+            if x + w > sheet_w - margin:        # перенос на новую «полку»
+                x = margin
+                y_top -= row_h + gap + 6
+                row_h = 0.0
+            placed.append((b.name, f"{b.width_m:g}×{b.length_m:g} м", x, y_top - h, w, h))
+            x += w + gap
+            row_h = max(row_h, h)
+        return placed
+
+    def _draw_site_plan(self, cont, cast_to, buildings=None) -> None:
+        # Граница участка + заголовок
+        self._rect(cont, 0, 0, 285, 200, style=3)
         self._label(cont, cast_to, 5, 205, "ГЕНПЛАН КИРПИЧНОГО ЗАВОДА", height=7)
-        for name, size, x, y, w, h in self._SITE_BUILDINGS:
-            self._rect(cont, x, y, w, h)               # контур корпуса
+        rows = (self._layout(buildings) if buildings
+                else [(n, s, x, y, w, h) for n, s, x, y, w, h in self._SITE_BUILDINGS])
+        for name, size, x, y, w, h in rows:
+            self._rect(cont, x, y, w, h)                       # контур корпуса
             self._label(cont, cast_to, x + 2, y + h - 6, name, height=3.5)
-            self._label(cont, cast_to, x + 2, y + 2, f"{size} м", height=3.0)
+            self._label(cont, cast_to, x + 2, y + 2, f"{size}", height=3.0)
