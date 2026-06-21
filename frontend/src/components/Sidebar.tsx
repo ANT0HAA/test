@@ -1,8 +1,9 @@
 import {
   Network, Flame, Building2, Settings, Zap, Cpu,
-  ClipboardCheck, Calculator, FileText, SlidersHorizontal, type LucideIcon,
+  ClipboardCheck, Calculator, FileText, SlidersHorizontal, LogOut, type LucideIcon,
 } from 'lucide-react'
 import type { Agent, KnowledgeMap } from '../types'
+import type { AuthUser } from '../api/client'
 
 const ICONS: Record<string, LucideIcon> = {
   sitemap: Network,
@@ -23,9 +24,11 @@ interface Props {
   onOpenAdmin?: () => void
   industryName?: string
   knowledge?: KnowledgeMap
+  user?: AuthUser
+  onLogout?: () => void
 }
 
-export default function Sidebar({ agents, selected, onSelect, onOpenAdmin, industryName, knowledge }: Props) {
+export default function Sidebar({ agents, selected, onSelect, onOpenAdmin, industryName, knowledge, user, onLogout }: Props) {
   const orchestrator = agents.find((a) => a.id === 'orchestrator')
   const specialists = agents.filter((a) => a.id !== 'orchestrator')
 
@@ -79,12 +82,25 @@ export default function Sidebar({ agents, selected, onSelect, onOpenAdmin, indus
         ))}
       </nav>
 
-      <div className="px-4 py-3 border-t border-ink-600">
-        <p className="text-[10px] text-faint font-mono leading-relaxed">
-          Выберите агента для прямого диалога или
-          «Главный конструктор» для распределения задач.
-        </p>
-      </div>
+      {user && (
+        <div className="px-4 py-3 border-t border-ink-600 flex items-center justify-between gap-2">
+          <div className="min-w-0">
+            <div className="text-[12px] text-gray-200 truncate">{user.username}</div>
+            <div className="text-[10px] text-faint font-mono">
+              {user.role === 'admin' ? 'администратор' : 'пользователь'}
+            </div>
+          </div>
+          {onLogout && (
+            <button
+              onClick={onLogout}
+              title="Выйти"
+              className="shrink-0 p-1.5 rounded-lg hover:bg-ink-600 text-muted hover:text-gray-200 transition-colors"
+            >
+              <LogOut size={15} />
+            </button>
+          )}
+        </div>
+      )}
     </aside>
   )
 }

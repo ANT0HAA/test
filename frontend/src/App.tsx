@@ -7,17 +7,21 @@ import AdminModal from './components/AdminModal'
 import InputsFormModal from './components/InputsFormModal'
 import ClarifyModal from './components/ClarifyModal'
 import SpecModal from './components/SpecModal'
+import AuthScreen from './components/AuthScreen'
 import {
   fetchAgents, useChatSocket, clearSession, fetchLlmStatus, type LlmStatus,
   fetchProjects, createProject, deleteProject, fetchProjectDetail, fetchIndustries, fetchKnowledge,
   exportDocument, uploadProjectMaterial, downloadProjectPackage, downloadSitePlan,
   fetchInputsSchema, submitProjectInputs, type ExportDocType,
+  authMe, authLogout, type AuthUser,
 } from './api/client'
 import type { Agent, ChatMessage, Industry, InputField, KnowledgeMap, Project } from './types'
 
 const DEFAULT_INDUSTRY = 'ceramics'
 
 export default function App() {
+  const [user, setUser] = useState<AuthUser | null>(null)
+  const [authReady, setAuthReady] = useState(false)
   const [agents, setAgents] = useState<Agent[]>([])
   const [selectedAgent, setSelectedAgent] = useState('orchestrator')
   const [messages, setMessages] = useState<ChatMessage[]>([])
@@ -43,7 +47,14 @@ export default function App() {
   const activeProject = projects.find((p) => p.id === activeProjectId)
   const currentIndustry = activeProject?.industry ?? DEFAULT_INDUSTRY
 
+  // Проверка сохранённого токена при загрузке
   useEffect(() => {
+    authMe().then((u) => { setUser(u); setAuthReady(true) }).catch(() => setAuthReady(true))
+  }, [])
+
+  // Начальная загрузка данных — только после входа
+  useEffect(() => {
+    if (!user) return
     fetchLlmStatus().then(setLlm).catch(() => setLlm(null))
     fetchIndustries().then(setIndustries).catch(console.error)
 
@@ -59,10 +70,11 @@ export default function App() {
         }
       })
       .catch(console.error)
-  }, [])
+  }, [user])
 
   // Набор агентов и статистика базы знаний зависят от отрасли активного проекта
   useEffect(() => {
+    if (!user) return
     fetchAgents(currentIndustry)
       .then((list) => {
         setAgents(list)
@@ -324,6 +336,17 @@ export default function App() {
     }
   }
 
+  const handleLogout = async () => {
+    await authLogout()
+    setUser(null)
+    setProjects([])
+    setActiveProjectId(null)
+    setMessages([])
+  }
+
+  if (!authReady) return <div className="h-full bg-ink-900" />
+  if (!user) return <AuthScreen onAuthed={setUser} />
+
   return (
     <div className="flex h-full">
       <Sidebar
@@ -332,6 +355,8 @@ export default function App() {
         onSelect={setSelectedAgent}
         onOpenAdmin={() => setShowAdmin(true)}
         knowledge={knowledge}
+        user={user}
+        onLogout={handleLogout}
         industryName={activeProject?.industry === 'ceramics' || !activeProject
           ? 'керамические заводы'
           : industries.find((i) => i.id === currentIndustry)?.display_name ?? currentIndustry}
@@ -415,6 +440,7 @@ export default function App() {
           currentIndustry={currentIndustry}
           onClose={() => setShowAdmin(false)}
           onChanged={handleAdminChanged}
+          currentUser={user}
         />
       )}
     </div>

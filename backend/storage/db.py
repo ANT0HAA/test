@@ -26,7 +26,29 @@ class Project(Base):
     id: Mapped[str] = mapped_column(String(36), primary_key=True, default=lambda: str(uuid.uuid4()))
     name: Mapped[str] = mapped_column(String(200))
     industry: Mapped[str] = mapped_column(String(50), default="ceramics")
+    owner_id: Mapped[str | None] = mapped_column(String(36), index=True, nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=lambda: datetime.now(timezone.utc))
+
+
+class User(Base):
+    """Пользователь системы. Роль: 'admin' (управление пользователями/агентами) или 'user'."""
+    __tablename__ = "users"
+
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=lambda: str(uuid.uuid4()))
+    username: Mapped[str] = mapped_column(String(80), unique=True, index=True)
+    password_hash: Mapped[str] = mapped_column(String(200))
+    role: Mapped[str] = mapped_column(String(20), default="user")
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=lambda: datetime.now(timezone.utc))
+
+
+class UserSession(Base):
+    """Сессионный токен пользователя (выдаётся при входе, проверяется в каждом запросе)."""
+    __tablename__ = "user_sessions"
+
+    token: Mapped[str] = mapped_column(String(64), primary_key=True)
+    user_id: Mapped[str] = mapped_column(ForeignKey("users.id", ondelete="CASCADE"), index=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=lambda: datetime.now(timezone.utc))
+    expires_at: Mapped[datetime] = mapped_column(DateTime(timezone=True))
 
 
 class ProjectMessage(Base):
@@ -85,15 +107,22 @@ _SessionLocal = async_sessionmaker(_engine, expire_on_commit=False)
 
 async def init_db() -> None:
     """Создать таблицы, если их ещё нет (вызывается при старте приложения)."""
+    from sqlalchemy import text
     async with _engine.begin() as conn:
         await conn.run_sync(Base.metadata.create_all)
+        # Идемпотентная миграция: колонка владельца у уже существующих проектов
+        await conn.execute(text(
+            "ALTER TABLE projects ADD COLUMN IF NOT EXISTS owner_id VARCHAR(36)"
+        ))
 
 
 # ─── Projects ────────────────────────────────────────────────────────────
 
-async def create_project(name: str, industry: str = "ceramics", project_id: str | None = None) -> Project:
+async def create_project(name: str, industry: str = "ceramics", project_id: str | None = None,
+                         owner_id: str | None = None) -> Project:
     async with _SessionLocal() as session:
-        project = Project(id=project_id or str(uuid.uuid4()), name=name, industry=industry)
+        project = Project(id=project_id or str(uuid.uuid4()), name=name, industry=industry,
+                          owner_id=owner_id)
         session.add(project)
         await session.commit()
         await session.refresh(project)
@@ -105,9 +134,15 @@ async def get_project(project_id: str) -> Project | None:
         return await session.get(Project, project_id)
 
 
-async def list_projects() -> list[Project]:
+async def list_projects(owner_id: str | None = None) -> list[Project]:
+    """Список проектов. Если owner_id задан — только проекты этого владельца
+    (и «ничьи» legacy-проекты с owner_id IS NULL). Без owner_id — все (для админа)."""
     async with _SessionLocal() as session:
-        result = await session.execute(select(Project).order_by(Project.created_at.desc()))
+        stmt = select(Project).order_by(Project.created_at.desc())
+        if owner_id is not None:
+            from sqlalchemy import or_
+            stmt = stmt.where(or_(Project.owner_id == owner_id, Project.owner_id.is_(None)))
+        result = await session.execute(stmt)
         return list(result.scalars().all())
 
 
@@ -120,6 +155,15 @@ async def delete_project(project_id: str) -> bool:
         await session.delete(project)
         await session.commit()
         return True
+
+
+async def assign_project_owner(project_id: str, owner_id: str) -> None:
+    """Закрепить владельца за проектом (для legacy-проектов без owner_id)."""
+    async with _SessionLocal() as session:
+        project = await session.get(Project, project_id)
+        if project and not project.owner_id:
+            project.owner_id = owner_id
+            await session.commit()
 
 
 async def get_or_create_project(project_id: str, default_name: str = "Проект по умолчанию") -> Project:
@@ -276,6 +320,81 @@ async def upsert_agent_override(industry: str, agent_id: str, fields: dict) -> N
 async def delete_agent_override(industry: str, agent_id: str) -> None:
     async with _SessionLocal() as session:
         row = await session.get(AgentOverride, (industry, agent_id))
+        if row:
+            await session.delete(row)
+            await session.commit()
+
+
+# ─── Пользователи и сессии (авторизация) ──────────────────────────────
+
+async def count_users() -> int:
+    from sqlalchemy import func
+    async with _SessionLocal() as session:
+        result = await session.execute(select(func.count()).select_from(User))
+        return int(result.scalar_one())
+
+
+async def create_user(username: str, password_hash: str, role: str = "user") -> User:
+    async with _SessionLocal() as session:
+        user = User(username=username, password_hash=password_hash, role=role)
+        session.add(user)
+        await session.commit()
+        await session.refresh(user)
+        return user
+
+
+async def get_user_by_username(username: str) -> User | None:
+    async with _SessionLocal() as session:
+        result = await session.execute(select(User).where(User.username == username))
+        return result.scalars().first()
+
+
+async def get_user(user_id: str) -> User | None:
+    async with _SessionLocal() as session:
+        return await session.get(User, user_id)
+
+
+async def list_users() -> list[User]:
+    async with _SessionLocal() as session:
+        result = await session.execute(select(User).order_by(User.created_at.asc()))
+        return list(result.scalars().all())
+
+
+async def delete_user(user_id: str) -> bool:
+    async with _SessionLocal() as session:
+        user = await session.get(User, user_id)
+        if not user:
+            return False
+        await session.delete(user)
+        await session.commit()
+        return True
+
+
+async def create_session(user_id: str, token: str, expires_at: datetime) -> None:
+    async with _SessionLocal() as session:
+        session.add(UserSession(token=token, user_id=user_id, expires_at=expires_at))
+        await session.commit()
+
+
+async def get_session_user(token: str) -> User | None:
+    """Пользователь по действующему токену (None, если токен неизвестен или истёк)."""
+    async with _SessionLocal() as session:
+        row = await session.get(UserSession, token)
+        if not row:
+            return None
+        expires = row.expires_at
+        if expires.tzinfo is None:
+            expires = expires.replace(tzinfo=timezone.utc)
+        if expires < datetime.now(timezone.utc):
+            await session.delete(row)
+            await session.commit()
+            return None
+        return await session.get(User, row.user_id)
+
+
+async def delete_session(token: str) -> None:
+    async with _SessionLocal() as session:
+        row = await session.get(UserSession, token)
         if row:
             await session.delete(row)
             await session.commit()

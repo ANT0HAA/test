@@ -4,6 +4,7 @@ import type { Agent, Industry } from '../types'
 import {
   fetchAgents, fetchAgentDetail, upsertAgent, deleteAgent,
   createIndustry, deleteIndustry, type AgentUpsertBody,
+  fetchUsers, createUser, deleteUser, type AuthUser,
 } from '../api/client'
 
 interface Props {
@@ -11,6 +12,7 @@ interface Props {
   currentIndustry: string
   onClose: () => void
   onChanged: () => void   // дёргается после любого изменения (App обновит списки)
+  currentUser?: AuthUser  // для админ-функций (управление пользователями)
 }
 
 const ICON_OPTIONS = [
@@ -39,7 +41,7 @@ const EMPTY_FORM: Form = {
   icon: 'sitemap', system_prompt: '', keywords: '', isNew: true, builtin: false,
 }
 
-export default function AdminModal({ industries, currentIndustry, onClose, onChanged }: Props) {
+export default function AdminModal({ industries, currentIndustry, onClose, onChanged, currentUser }: Props) {
   const [industry, setIndustry] = useState(
     industries.some((i) => i.id === currentIndustry)
       ? currentIndustry
@@ -189,6 +191,7 @@ export default function AdminModal({ industries, currentIndustry, onClose, onCha
         <div className="flex-1 overflow-y-auto px-5 py-4">
           {!form ? (
             <>
+              {currentUser?.role === 'admin' && <UsersPanel onError={setError} />}
               <div className="flex items-center justify-between mb-2">
                 <span className="text-[11px] uppercase tracking-wider text-faint font-mono">Агенты</span>
                 <button onClick={openNew}
@@ -291,6 +294,80 @@ function AgentForm({ form, setForm }: { form: Form; setForm: (f: Form) => void }
           onChange={(e) => upd({ keywords: e.target.value })}
           className="w-full bg-ink-900 border border-ink-500 rounded-lg px-3 py-2 text-[13px] text-gray-200 focus:outline-none focus:border-clay-400" />
       </Field>
+    </div>
+  )
+}
+
+function UsersPanel({ onError }: { onError: (s: string) => void }) {
+  const [users, setUsers] = useState<AuthUser[]>([])
+  const [adding, setAdding] = useState<{ username: string; password: string; role: string } | null>(null)
+  const [busy, setBusy] = useState(false)
+
+  const reload = () => fetchUsers().then(setUsers).catch((e) => onError(String(e)))
+  useEffect(() => { reload() }, [])
+
+  const add = async () => {
+    if (!adding || !adding.username.trim() || !adding.password) return
+    setBusy(true); onError('')
+    try {
+      await createUser(adding.username.trim(), adding.password, adding.role)
+      setAdding(null)
+      await reload()
+    } catch (e) { onError(e instanceof Error ? e.message : String(e)) }
+    finally { setBusy(false) }
+  }
+
+  const remove = async (u: AuthUser) => {
+    if (!confirm(`Удалить пользователя «${u.username}»?`)) return
+    setBusy(true); onError('')
+    try { await deleteUser(u.id); await reload() }
+    catch (e) { onError(e instanceof Error ? e.message : String(e)) }
+    finally { setBusy(false) }
+  }
+
+  return (
+    <div className="mb-5">
+      <div className="flex items-center justify-between mb-2">
+        <span className="text-[11px] uppercase tracking-wider text-faint font-mono">Пользователи</span>
+        {!adding && (
+          <button onClick={() => setAdding({ username: '', password: '', role: 'user' })}
+            className="text-[12px] text-clay-300 hover:text-clay-200 flex items-center gap-1">
+            <Plus size={14} /> добавить пользователя
+          </button>
+        )}
+      </div>
+      {adding && (
+        <div className="flex items-center gap-1.5 mb-2">
+          <input placeholder="логин" value={adding.username}
+            onChange={(e) => setAdding({ ...adding, username: e.target.value })}
+            className="flex-1 bg-ink-900 border border-ink-500 rounded px-2 py-1 text-[12px] text-gray-200" />
+          <input placeholder="пароль" type="password" value={adding.password}
+            onChange={(e) => setAdding({ ...adding, password: e.target.value })}
+            className="flex-1 bg-ink-900 border border-ink-500 rounded px-2 py-1 text-[12px] text-gray-200" />
+          <select value={adding.role} onChange={(e) => setAdding({ ...adding, role: e.target.value })}
+            className="bg-ink-900 border border-ink-500 rounded px-2 py-1 text-[12px] text-gray-200">
+            <option value="user">пользователь</option>
+            <option value="admin">админ</option>
+          </select>
+          <button onClick={add} disabled={busy || !adding.username.trim() || !adding.password}
+            className="px-2 py-1 text-[12px] bg-clay-500 hover:bg-clay-400 disabled:opacity-40 text-white rounded">ОК</button>
+          <button onClick={() => setAdding(null)} className="text-faint hover:text-gray-200"><X size={14} /></button>
+        </div>
+      )}
+      <div className="space-y-1.5">
+        {users.map((u) => (
+          <div key={u.id} className="flex items-center gap-3 px-3 py-2 rounded-lg bg-ink-900 border border-ink-600">
+            <div className="min-w-0 flex-1">
+              <span className="text-[13px] text-gray-200">{u.username}</span>
+              <span className="text-faint font-mono text-[10px] ml-2">
+                {u.role === 'admin' ? 'админ' : 'пользователь'}
+              </span>
+            </div>
+            <button onClick={() => remove(u)} title="Удалить пользователя"
+              className="p-1.5 rounded hover:bg-ink-600 text-muted hover:text-red-300"><Trash2 size={14} /></button>
+          </div>
+        ))}
+      </div>
     </div>
   )
 }

@@ -18,7 +18,10 @@ from typing import Any
 
 from urllib.parse import quote
 
-from fastapi import FastAPI, WebSocket, WebSocketDisconnect, UploadFile, File, Form, HTTPException
+from fastapi import (
+    FastAPI, WebSocket, WebSocketDisconnect, UploadFile, File, Form, HTTPException,
+    Depends, Header,
+)
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import Response
 from langchain_core.messages import HumanMessage
@@ -111,6 +114,127 @@ app.add_middleware(
 
 Path(settings.uploads_path).mkdir(parents=True, exist_ok=True)
 
+
+# ─── Авторизация (логин/пароль + роли) ────────────────────────────────
+import security
+from datetime import timedelta, datetime as _dt, timezone as _tz
+
+SESSION_TTL_DAYS = 30
+
+
+class RegisterBody(BaseModel):
+    username: str
+    password: str
+
+
+class LoginBody(BaseModel):
+    username: str
+    password: str
+
+
+class CreateUserBody(BaseModel):
+    username: str
+    password: str
+    role: str = "user"
+
+
+def _user_info(user) -> dict:
+    return {"id": user.id, "username": user.username, "role": user.role}
+
+
+async def get_current_user(authorization: str = Header(default="")):
+    """Текущий пользователь по токену из заголовка Authorization: Bearer <token>."""
+    token = authorization[7:].strip() if authorization.lower().startswith("bearer ") else ""
+    user = await storage.get_session_user(token) if token else None
+    if not user:
+        raise HTTPException(status_code=401, detail="Требуется вход в систему")
+    return user
+
+
+async def require_admin(user=Depends(get_current_user)):
+    if user.role != "admin":
+        raise HTTPException(status_code=403, detail="Требуются права администратора")
+    return user
+
+
+async def project_access(project_id: str, user=Depends(get_current_user)):
+    """Проект с проверкой доступа: владелец, админ или «ничей» legacy-проект."""
+    project = await storage.get_project(project_id)
+    if not project:
+        raise HTTPException(status_code=404, detail="Проект не найден")
+    if project.owner_id and project.owner_id != user.id and user.role != "admin":
+        raise HTTPException(status_code=403, detail="Нет доступа к проекту")
+    return project
+
+
+@app.get("/api/auth/me")
+async def auth_me(user=Depends(get_current_user)):
+    return _user_info(user)
+
+
+@app.post("/api/auth/register")
+async def auth_register(body: RegisterBody):
+    """Регистрация. Первый зарегистрированный пользователь становится администратором."""
+    username = body.username.strip()
+    if not username or not body.password:
+        raise HTTPException(status_code=400, detail="Укажите логин и пароль")
+    if await storage.get_user_by_username(username):
+        raise HTTPException(status_code=409, detail="Пользователь с таким логином уже есть")
+    role = "admin" if await storage.count_users() == 0 else "user"
+    user = await storage.create_user(username, security.hash_password(body.password), role)
+    token = security.new_token()
+    await storage.create_session(user.id, token,
+                                 _dt.now(_tz.utc) + timedelta(days=SESSION_TTL_DAYS))
+    return {"token": token, "user": _user_info(user)}
+
+
+@app.post("/api/auth/login")
+async def auth_login(body: LoginBody):
+    user = await storage.get_user_by_username(body.username.strip())
+    if not user or not security.verify_password(body.password, user.password_hash):
+        raise HTTPException(status_code=401, detail="Неверный логин или пароль")
+    token = security.new_token()
+    await storage.create_session(user.id, token,
+                                 _dt.now(_tz.utc) + timedelta(days=SESSION_TTL_DAYS))
+    return {"token": token, "user": _user_info(user)}
+
+
+@app.post("/api/auth/logout")
+async def auth_logout(authorization: str = Header(default="")):
+    token = authorization[7:].strip() if authorization.lower().startswith("bearer ") else ""
+    if token:
+        await storage.delete_session(token)
+    return {"ok": True}
+
+
+# ─── Управление пользователями (только администратор) ──────────────────
+
+@app.get("/api/users")
+async def list_users(_: object = Depends(require_admin)):
+    return [_user_info(u) for u in await storage.list_users()]
+
+
+@app.post("/api/users")
+async def create_user_admin(body: CreateUserBody, _: object = Depends(require_admin)):
+    username = body.username.strip()
+    if not username or not body.password:
+        raise HTTPException(status_code=400, detail="Укажите логин и пароль")
+    if await storage.get_user_by_username(username):
+        raise HTTPException(status_code=409, detail="Пользователь с таким логином уже есть")
+    role = body.role if body.role in ("admin", "user") else "user"
+    user = await storage.create_user(username, security.hash_password(body.password), role)
+    return _user_info(user)
+
+
+@app.delete("/api/users/{user_id}")
+async def delete_user_admin(user_id: str, admin=Depends(require_admin)):
+    if user_id == admin.id:
+        raise HTTPException(status_code=400, detail="Нельзя удалить самого себя")
+    ok = await storage.delete_user(user_id)
+    if not ok:
+        raise HTTPException(status_code=404, detail="Пользователь не найден")
+    return {"ok": True}
+
 MAX_HISTORY = 40  # максимум сообщений из истории проекта, подаваемых в контекст модели
 
 # Команда сохранения решения в память проекта: «запомни: <текст>»
@@ -168,11 +292,25 @@ manager = ConnectionManager()
 
 @app.websocket("/ws/{project_id}")
 async def websocket_chat(websocket: WebSocket, project_id: str):
+    # Авторизация по токену из query (?token=...): чат доступен только владельцу/админу
+    token = websocket.query_params.get("token", "")
+    user = await storage.get_session_user(token) if token else None
+    if not user:
+        await websocket.close(code=4401)
+        return
+    existing = await storage.get_project(project_id)
+    if existing and existing.owner_id and existing.owner_id != user.id and user.role != "admin":
+        await websocket.close(code=4403)
+        return
+
     await manager.connect(websocket, project_id)
     graph = get_graph()
 
     # Проект может быть создан заранее через REST либо лениво (для обратной совместимости)
     project = await storage.get_or_create_project(project_id)
+    if project.owner_id is None:
+        # Закрепить «ничей» проект за первым подключившимся пользователем
+        await storage.assign_project_owner(project_id, user.id)
     industry = project.industry or DEFAULT_INDUSTRY
 
     try:
@@ -553,11 +691,9 @@ class _OxidesLLM(BaseModel):
 
 
 @app.post("/api/projects/{project_id}/analyze-lab")
-async def analyze_lab(project_id: str):
+async def analyze_lab(project_id: str, _=Depends(project_access)):
     """Извлечь хим. состав сырья из приложенного отчёта лаборатории (LLM) и,
     при наличии данных, посчитать состав шихты. Пусто, если отчёта нет."""
-    if not await storage.get_project(project_id):
-        raise HTTPException(status_code=404, detail="Проект не найден")
     from knowledge.chroma import project_search
     lab_text = project_search("химический состав глины оксиды влажность пластичность", project_id)
     if not lab_text:
@@ -639,7 +775,10 @@ async def llm_status():
 # ─── REST: clear session (история чата проекта) ───────────────────────
 
 @app.delete("/api/session/{session_id}")
-async def clear_session(session_id: str):
+async def clear_session(session_id: str, user=Depends(get_current_user)):
+    project = await storage.get_project(session_id)
+    if project and project.owner_id and project.owner_id != user.id and user.role != "admin":
+        raise HTTPException(status_code=403, detail="Нет доступа к проекту")
     await storage.clear_messages(session_id)
     return {"ok": True, "session_id": session_id}
 
@@ -647,16 +786,18 @@ async def clear_session(session_id: str):
 # ─── REST: projects (память проектов) ──────────────────────────────────
 
 @app.post("/api/projects", response_model=ProjectInfo)
-async def create_project(payload: ProjectCreate):
-    project = await storage.create_project(payload.name, payload.industry)
+async def create_project(payload: ProjectCreate, user=Depends(get_current_user)):
+    project = await storage.create_project(payload.name, payload.industry, owner_id=user.id)
     return ProjectInfo(
         id=project.id, name=project.name, industry=project.industry, created_at=project.created_at,
     )
 
 
 @app.get("/api/projects", response_model=list[ProjectInfo])
-async def get_projects():
-    projects = await storage.list_projects()
+async def get_projects(user=Depends(get_current_user)):
+    # Админ видит все проекты, обычный пользователь — свои и «ничьи» (legacy)
+    owner = None if user.role == "admin" else user.id
+    projects = await storage.list_projects(owner_id=owner)
     return [
         ProjectInfo(id=p.id, name=p.name, industry=p.industry, created_at=p.created_at)
         for p in projects
@@ -664,10 +805,8 @@ async def get_projects():
 
 
 @app.get("/api/projects/{project_id}", response_model=ProjectDetail)
-async def get_project(project_id: str):
-    project = await storage.get_project(project_id)
-    if not project:
-        raise HTTPException(status_code=404, detail="Проект не найден")
+async def get_project(project=Depends(project_access)):
+    project_id = project.id
     rows = await storage.get_messages(project_id)
     return ProjectDetail(
         id=project.id, name=project.name, industry=project.industry, created_at=project.created_at,
@@ -707,7 +846,7 @@ class _FieldsLLM(BaseModel):
 
 
 @app.post("/api/projects/{project_id}/inputs-schema", response_model=InputsSchemaResponse)
-async def inputs_schema(project_id: str, payload: InputsSchemaRequest):
+async def inputs_schema(project_id: str, payload: InputsSchemaRequest, _=Depends(project_access)):
     """Какие исходные данные запросить у пользователя (поля формы).
     Оркестратор предлагает поля по брифу; при сбое — курируемый набор."""
     if payload.brief.strip():
@@ -742,10 +881,8 @@ async def inputs_schema(project_id: str, payload: InputsSchemaRequest):
 
 
 @app.post("/api/projects/{project_id}/inputs")
-async def submit_inputs(project_id: str, payload: ProjectInputsSubmit):
+async def submit_inputs(project_id: str, payload: ProjectInputsSubmit, _=Depends(project_access)):
     """Сохранить заполненные исходные данные как материалы проекта (приоритет над БЗ)."""
-    if not await storage.get_project(project_id):
-        raise HTTPException(status_code=404, detail="Проект не найден")
     clean = {k: v for k, v in payload.values.items() if str(v).strip()}
     if not clean:
         return {"ok": True, "saved": 0}
@@ -758,7 +895,7 @@ async def submit_inputs(project_id: str, payload: ProjectInputsSubmit):
 
 
 @app.get("/api/projects/{project_id}/spec")
-async def project_spec(project_id: str):
+async def project_spec(project_id: str, _=Depends(project_access)):
     """
     Структурированная спецификация проекта — единый источник истины.
 
@@ -768,21 +905,17 @@ async def project_spec(project_id: str):
     выпуска не задан, возвращает has_data=False с уже введёнными данными.
     """
     from calc import build_spec
-    if not await storage.get_project(project_id):
-        raise HTTPException(status_code=404, detail="Проект не найден")
     inputs = await storage.get_project_inputs(project_id) or {}
     return build_spec(inputs)
 
 
 @app.get("/api/projects/{project_id}/package")
-async def project_package(project_id: str):
+async def project_package(project=Depends(project_access)):
     """Полный пакет проекта одним архивом: записка (DOCX), ведомость (XLSX),
     сводный отчёт (PDF), генплан (.cdw, если доступен коннектор) и манифест."""
     import io
     import zipfile
-    project = await storage.get_project(project_id)
-    if not project:
-        raise HTTPException(status_code=404, detail="Проект не найден")
+    project_id = project.id
 
     buf = io.BytesIO()
     included: list[str] = []
@@ -824,13 +957,12 @@ async def project_package(project_id: str):
 
 
 @app.post("/api/projects/{project_id}/materials", response_model=UploadResponse)
-async def upload_project_materials(project_id: str, file: UploadFile = File(...)):
+async def upload_project_materials(project_id: str, file: UploadFile = File(...),
+                                   _=Depends(project_access)):
     """
     Загрузить готовый проект/материалы в КОНКРЕТНЫЙ проект. Эти материалы имеют
     приоритет над базой знаний — агенты дорабатывают именно их.
     """
-    if not await storage.get_project(project_id):
-        raise HTTPException(status_code=404, detail="Проект не найден")
     allowed = {".txt", ".pdf", ".docx", ".xlsx", ".xlsm"}
     suffix = Path(file.filename or "").suffix.lower()
     if suffix not in allowed:
@@ -845,7 +977,7 @@ async def upload_project_materials(project_id: str, file: UploadFile = File(...)
 
 
 @app.delete("/api/projects/{project_id}")
-async def delete_project(project_id: str):
+async def delete_project(project_id: str, _=Depends(project_access)):
     """Удалить проект со всей историей, памятью и материалами."""
     if not await storage.delete_project(project_id):
         raise HTTPException(status_code=404, detail="Проект не найден")
@@ -854,9 +986,7 @@ async def delete_project(project_id: str):
 
 
 @app.post("/api/projects/{project_id}/memory")
-async def add_project_memory(project_id: str, payload: MemoryNoteCreate):
-    if not await storage.get_project(project_id):
-        raise HTTPException(status_code=404, detail="Проект не найден")
+async def add_project_memory(project_id: str, payload: MemoryNoteCreate, _=Depends(project_access)):
     await storage.add_memory(project_id, payload.agent, payload.value)
     return {"ok": True}
 
@@ -864,8 +994,11 @@ async def add_project_memory(project_id: str, payload: MemoryNoteCreate):
 # ─── REST: экспорт документов (DOCX / XLSX / PDF) ─────────────────────
 
 @app.post("/api/export")
-async def export_document(payload: ExportRequest):
+async def export_document(payload: ExportRequest, user=Depends(get_current_user)):
     """Сформировать документ по проекту и вернуть файл на скачивание."""
+    proj = await storage.get_project(payload.project_id)
+    if proj and proj.owner_id and proj.owner_id != user.id and user.role != "admin":
+        raise HTTPException(status_code=403, detail="Нет доступа к проекту")
     try:
         content, mime, filename = await build_document(payload.project_id, payload.doc_type)
     except LookupError:
@@ -1020,12 +1153,10 @@ async def kompas_design(payload: KompasDesignRequest):
 
 
 @app.post("/api/projects/{project_id}/site-plan")
-async def project_site_plan(project_id: str):
+async def project_site_plan(project=Depends(project_access)):
     """Генплан завода по ВЫЧИСЛЕННЫМ площадям проекта (через коннектор Компас)."""
     import httpx
-    project = await storage.get_project(project_id)
-    if not project:
-        raise HTTPException(status_code=404, detail="Проект не найден")
+    project_id = project.id
     buildings = await _project_buildings(project)
     gen = {"kind": "site_plan", "title": f"Генплан — {project.name}",
            "project": project.id[:8], "designer": "AI Конструкторское бюро",

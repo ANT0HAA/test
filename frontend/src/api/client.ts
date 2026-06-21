@@ -3,28 +3,99 @@ import type { Agent, AgentDetail, Industry, InputField, KnowledgeMap, LabAnalysi
 
 const API_BASE = '' // proxied via vite
 
+// ─── Авторизация: токен сессии и заголовки ──────────────────────────
+let _token: string | null = localStorage.getItem('auth_token')
+
+export function setToken(t: string | null) {
+  _token = t
+  if (t) localStorage.setItem('auth_token', t)
+  else localStorage.removeItem('auth_token')
+}
+export function getToken(): string | null {
+  return _token
+}
+
+/** fetch с заголовком Authorization (если есть токен). */
+function authedFetch(input: string, init: RequestInit = {}): Promise<Response> {
+  const headers = new Headers(init.headers || {})
+  if (_token) headers.set('Authorization', `Bearer ${_token}`)
+  return fetch(input, { ...init, headers })
+}
+
+export interface AuthUser {
+  id: string
+  username: string
+  role: string
+}
+
+export async function authRegister(username: string, password: string): Promise<AuthUser> {
+  const res = await authedFetch(`${API_BASE}/api/auth/register`, {
+    method: 'POST', headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ username, password }),
+  })
+  const data = await jsonOrThrow(res)
+  setToken(data.token)
+  return data.user
+}
+
+export async function authLogin(username: string, password: string): Promise<AuthUser> {
+  const res = await authedFetch(`${API_BASE}/api/auth/login`, {
+    method: 'POST', headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ username, password }),
+  })
+  const data = await jsonOrThrow(res)
+  setToken(data.token)
+  return data.user
+}
+
+export async function authMe(): Promise<AuthUser | null> {
+  if (!_token) return null
+  const res = await authedFetch(`${API_BASE}/api/auth/me`)
+  if (!res.ok) { setToken(null); return null }
+  return res.json()
+}
+
+export async function authLogout(): Promise<void> {
+  try { await authedFetch(`${API_BASE}/api/auth/logout`, { method: 'POST' }) } catch { /* ignore */ }
+  setToken(null)
+}
+
+// ─── Управление пользователями (админ) ──────────────────────────────
+export async function fetchUsers(): Promise<AuthUser[]> {
+  return jsonOrThrow(await authedFetch(`${API_BASE}/api/users`))
+}
+export async function createUser(username: string, password: string, role: string): Promise<AuthUser> {
+  return jsonOrThrow(await authedFetch(`${API_BASE}/api/users`, {
+    method: 'POST', headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ username, password, role }),
+  }))
+}
+export async function deleteUser(userId: string): Promise<void> {
+  await jsonOrThrow(await authedFetch(`${API_BASE}/api/users/${userId}`, { method: 'DELETE' }))
+}
+
 // ─── REST ───────────────────────────────────────────────────────────
 
 export async function fetchIndustries(): Promise<Industry[]> {
-  const res = await fetch(`${API_BASE}/api/industries`)
+  const res = await authedFetch(`${API_BASE}/api/industries`)
   if (!res.ok) throw new Error('Не удалось загрузить отрасли')
   return res.json()
 }
 
 export async function fetchAgents(industry = 'ceramics'): Promise<Agent[]> {
-  const res = await fetch(`${API_BASE}/api/agents?industry=${encodeURIComponent(industry)}`)
+  const res = await authedFetch(`${API_BASE}/api/agents?industry=${encodeURIComponent(industry)}`)
   if (!res.ok) throw new Error('Не удалось загрузить агентов')
   return res.json()
 }
 
 export async function fetchKnowledge(industry = 'ceramics'): Promise<KnowledgeMap> {
-  const res = await fetch(`${API_BASE}/api/knowledge?industry=${encodeURIComponent(industry)}`)
+  const res = await authedFetch(`${API_BASE}/api/knowledge?industry=${encodeURIComponent(industry)}`)
   if (!res.ok) throw new Error('Не удалось загрузить статистику базы знаний')
   return res.json()
 }
 
 export async function fetchAgentDetail(industry: string, agentId: string): Promise<AgentDetail> {
-  const res = await fetch(`${API_BASE}/api/agents/${industry}/${agentId}`)
+  const res = await authedFetch(`${API_BASE}/api/agents/${industry}/${agentId}`)
   if (!res.ok) throw new Error('Не удалось загрузить агента')
   return res.json()
 }
@@ -38,7 +109,7 @@ async function jsonOrThrow(res: Response) {
 }
 
 export async function createIndustry(id: string, displayName: string) {
-  return jsonOrThrow(await fetch(`${API_BASE}/api/industries`, {
+  return jsonOrThrow(await authedFetch(`${API_BASE}/api/industries`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ id, display_name: displayName }),
@@ -46,7 +117,7 @@ export async function createIndustry(id: string, displayName: string) {
 }
 
 export async function deleteIndustry(id: string) {
-  return jsonOrThrow(await fetch(`${API_BASE}/api/industries/${id}`, { method: 'DELETE' }))
+  return jsonOrThrow(await authedFetch(`${API_BASE}/api/industries/${id}`, { method: 'DELETE' }))
 }
 
 export interface AgentUpsertBody {
@@ -59,7 +130,7 @@ export interface AgentUpsertBody {
 }
 
 export async function upsertAgent(industry: string, agentId: string, body: AgentUpsertBody) {
-  return jsonOrThrow(await fetch(`${API_BASE}/api/agents/${industry}/${agentId}`, {
+  return jsonOrThrow(await authedFetch(`${API_BASE}/api/agents/${industry}/${agentId}`, {
     method: 'PUT',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify(body),
@@ -67,17 +138,17 @@ export async function upsertAgent(industry: string, agentId: string, body: Agent
 }
 
 export async function deleteAgent(industry: string, agentId: string) {
-  return jsonOrThrow(await fetch(`${API_BASE}/api/agents/${industry}/${agentId}`, { method: 'DELETE' }))
+  return jsonOrThrow(await authedFetch(`${API_BASE}/api/agents/${industry}/${agentId}`, { method: 'DELETE' }))
 }
 
 export async function fetchProjects(): Promise<Project[]> {
-  const res = await fetch(`${API_BASE}/api/projects`)
+  const res = await authedFetch(`${API_BASE}/api/projects`)
   if (!res.ok) throw new Error('Не удалось загрузить проекты')
   return res.json()
 }
 
 export async function createProject(name: string, industry = 'ceramics'): Promise<Project> {
-  const res = await fetch(`${API_BASE}/api/projects`, {
+  const res = await authedFetch(`${API_BASE}/api/projects`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ name, industry }),
@@ -87,14 +158,14 @@ export async function createProject(name: string, industry = 'ceramics'): Promis
 }
 
 export async function deleteProject(projectId: string): Promise<void> {
-  const res = await fetch(`${API_BASE}/api/projects/${projectId}`, { method: 'DELETE' })
+  const res = await authedFetch(`${API_BASE}/api/projects/${projectId}`, { method: 'DELETE' })
   if (!res.ok) throw new Error('Не удалось удалить проект')
 }
 
 export async function fetchProjectDetail(
   projectId: string
 ): Promise<Project & { messages: ProjectMessageInfo[] }> {
-  const res = await fetch(`${API_BASE}/api/projects/${projectId}`)
+  const res = await authedFetch(`${API_BASE}/api/projects/${projectId}`)
   if (!res.ok) throw new Error('Не удалось загрузить проект')
   return res.json()
 }
@@ -108,7 +179,7 @@ export async function uploadDocument(
   form.append('file', file)
   form.append('agent', agent)
   form.append('industry', industry)
-  const res = await fetch(`${API_BASE}/api/upload`, {
+  const res = await authedFetch(`${API_BASE}/api/upload`, {
     method: 'POST',
     body: form,
   })
@@ -126,7 +197,7 @@ export async function uploadProjectMaterial(
 ): Promise<{ ok: boolean; chunks_added: number; filename: string }> {
   const form = new FormData()
   form.append('file', file)
-  const res = await fetch(`${API_BASE}/api/projects/${projectId}/materials`, {
+  const res = await authedFetch(`${API_BASE}/api/projects/${projectId}/materials`, {
     method: 'POST',
     body: form,
   })
@@ -139,7 +210,7 @@ export async function uploadProjectMaterial(
 
 /** Запросить набор полей формы исходных данных (Конструктор предлагает по брифу). */
 export async function fetchInputsSchema(projectId: string, brief: string): Promise<InputField[]> {
-  const res = await fetch(`${API_BASE}/api/projects/${projectId}/inputs-schema`, {
+  const res = await authedFetch(`${API_BASE}/api/projects/${projectId}/inputs-schema`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ brief }),
@@ -154,7 +225,7 @@ export async function submitProjectInputs(
   projectId: string,
   values: Record<string, string>
 ): Promise<{ ok: boolean; saved: number }> {
-  const res = await fetch(`${API_BASE}/api/projects/${projectId}/inputs`, {
+  const res = await authedFetch(`${API_BASE}/api/projects/${projectId}/inputs`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ values }),
@@ -165,21 +236,21 @@ export async function submitProjectInputs(
 
 /** Структурированная спецификация проекта (расчётное ядро по исходным данным). */
 export async function fetchProjectSpec(projectId: string): Promise<ProjectSpec> {
-  const res = await fetch(`${API_BASE}/api/projects/${projectId}/spec`)
+  const res = await authedFetch(`${API_BASE}/api/projects/${projectId}/spec`)
   if (!res.ok) throw new Error('Не удалось загрузить спецификацию проекта')
   return res.json()
 }
 
 /** Разобрать приложенный отчёт лаборатории: компоненты + оксидный состав массы. */
 export async function analyzeLab(projectId: string): Promise<LabAnalysis> {
-  const res = await fetch(`${API_BASE}/api/projects/${projectId}/analyze-lab`, { method: 'POST' })
+  const res = await authedFetch(`${API_BASE}/api/projects/${projectId}/analyze-lab`, { method: 'POST' })
   if (!res.ok) throw new Error('Не удалось разобрать отчёт лаборатории')
   return res.json()
 }
 
 /** Сгенерировать и скачать генплан завода по вычисленным площадям (Компас). */
 export async function downloadSitePlan(projectId: string): Promise<void> {
-  const res = await fetch(`${API_BASE}/api/projects/${projectId}/site-plan`, { method: 'POST' })
+  const res = await authedFetch(`${API_BASE}/api/projects/${projectId}/site-plan`, { method: 'POST' })
   if (!res.ok) {
     const err = await res.json().catch(() => ({ detail: 'Ошибка генерации генплана' }))
     throw new Error(err.detail || 'Ошибка генерации генплана')
@@ -197,7 +268,7 @@ export async function downloadSitePlan(projectId: string): Promise<void> {
 
 /** Скачать полный пакет проекта (ZIP с документами и чертежом). */
 export async function downloadProjectPackage(projectId: string): Promise<void> {
-  const res = await fetch(`${API_BASE}/api/projects/${projectId}/package`)
+  const res = await authedFetch(`${API_BASE}/api/projects/${projectId}/package`)
   if (!res.ok) {
     const err = await res.json().catch(() => ({ detail: 'Ошибка формирования пакета' }))
     throw new Error(err.detail || 'Ошибка формирования пакета')
@@ -217,7 +288,7 @@ export async function downloadProjectPackage(projectId: string): Promise<void> {
 }
 
 export async function clearSession(sessionId: string): Promise<void> {
-  await fetch(`${API_BASE}/api/session/${sessionId}`, { method: 'DELETE' })
+  await authedFetch(`${API_BASE}/api/session/${sessionId}`, { method: 'DELETE' })
 }
 
 export type ExportDocType = 'docx' | 'xlsx' | 'pdf'
@@ -227,7 +298,7 @@ export async function exportDocument(
   projectId: string,
   docType: ExportDocType
 ): Promise<void> {
-  const res = await fetch(`${API_BASE}/api/export`, {
+  const res = await authedFetch(`${API_BASE}/api/export`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ project_id: projectId, doc_type: docType }),
@@ -261,7 +332,7 @@ export interface LlmStatus {
 }
 
 export async function fetchLlmStatus(): Promise<LlmStatus> {
-  const res = await fetch(`${API_BASE}/api/llm-status`)
+  const res = await authedFetch(`${API_BASE}/api/llm-status`)
   if (!res.ok) throw new Error('llm-status failed')
   return res.json()
 }
@@ -298,7 +369,8 @@ export function useChatSocket({
       return
     }
     const proto = window.location.protocol === 'https:' ? 'wss' : 'ws'
-    const url = `${proto}://${window.location.host}/ws/${sessionId}`
+    const tokenQs = _token ? `?token=${encodeURIComponent(_token)}` : ''
+    const url = `${proto}://${window.location.host}/ws/${sessionId}${tokenQs}`
     const ws = new WebSocket(url)
     wsRef.current = ws
 
