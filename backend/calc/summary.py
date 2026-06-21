@@ -9,6 +9,9 @@ import re
 
 from .production import ProductionInput, production_program
 from .equipment import EquipmentInput, select_equipment
+from .electrical import ElectricalInput, electrical_load
+from .areas import AreasInput, estimate_areas
+from .estimate import EstimateInput, cost_estimate
 
 # Ориентировочная масса 1 шт по виду продукции, кг
 _PIECE_MASS = {
@@ -69,5 +72,20 @@ def build_summary(values: dict) -> str:
     lines.append(f"Оборудование (≈{eq.raw_throughput_tph:.1f} т/ч по сырью):")
     for it in eq.items:
         lines.append(f"  • {it.role}: {it.name} — {it.unit_capacity} × {it.qty}")
+
+    el = electrical_load(ElectricalInput(
+        annual_kwh=prog.resources_per_year["electricity_kwh"],
+        operating_hours=prog.operating_hours_per_year))
+    lines.append(f"Электроснабжение: установл. мощность ≈ {el.installed_power_kw:.0f} кВт, "
+                 f"КТП {el.transformer_kva} кВА, {el.category}.")
+
+    ar = estimate_areas(AreasInput(pieces_per_year=prog.pieces_per_year))
+    lines.append(f"Площади корпусов (всего ≈ {ar.total_m2:.0f} м²): "
+                 + ", ".join(f"{k} {v:.0f} м²" for k, v in ar.areas_m2.items()))
+
+    est = cost_estimate(EstimateInput(resources_per_year=prog.resources_per_year,
+                                      pieces_per_year=prog.pieces_per_year))
+    lines.append(f"Себестоимость (переменные): {est.cost_per_1000_rub:.0f} руб/1000 шт, "
+                 f"{est.total_per_year_rub:,.0f} руб/год.")
 
     return "\n".join(lines).replace(",", " ")  # пробел как разделитель тысяч

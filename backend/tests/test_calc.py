@@ -5,6 +5,8 @@
 from calc import (
     ProductionInput, production_program, DryerInput, dryer_calc,
     EquipmentInput, select_equipment, build_summary, parse_capacity,
+    ElectricalInput, electrical_load, AreasInput, estimate_areas,
+    EstimateInput, cost_estimate,
 )
 
 
@@ -62,8 +64,25 @@ def test_equipment_selection_scales():
     assert all(i.qty >= 1 for i in big.items)
 
 
+def test_estimate_matches_document_cost():
+    # Себестоимость на 1000 шт по нормам и ценам документа = 2255.5 руб
+    prog = production_program(ProductionInput(pieces_per_year=1_000_000))
+    est = cost_estimate(EstimateInput(resources_per_year=prog.resources_per_year,
+                                      pieces_per_year=prog.pieces_per_year))
+    assert abs(est.cost_per_1000_rub - 2255.5) < 1.0
+
+
+def test_electrical_and_areas():
+    el = electrical_load(ElectricalInput(annual_kwh=2_700_000, operating_hours=4000))
+    assert el.installed_power_kw > 0 and el.transformer_kva >= 250
+    ar = estimate_areas(AreasInput(pieces_per_year=15_000_000))
+    assert ar.total_m2 > 0 and "Обжигательный корпус" in ar.areas_m2
+
+
 def test_build_summary_uses_inputs():
     s = build_summary({"product": "облицовочный кирпич", "capacity": "30000 шт/смену"})
     assert "Производственная программа" in s
     assert "Оборудование" in s
-    assert "т/год" in s
+    assert "Электроснабжение" in s
+    assert "Себестоимость" in s
+    assert "Площади корпусов" in s

@@ -47,6 +47,9 @@ from calc import (
     ProductionInput, ProductionResult, production_program,
     DryerInput, DryerResult, dryer_calc,
     EquipmentInput, EquipmentResult, select_equipment,
+    ElectricalInput, ElectricalResult, electrical_load,
+    AreasInput, AreasResult, estimate_areas,
+    EstimateInput, EstimateResult, cost_estimate,
 )
 
 logging.basicConfig(level=logging.INFO)
@@ -470,6 +473,33 @@ async def calc_equipment(payload: EquipmentInput):
     """Подбор основного оборудования по производительности."""
     try:
         return select_equipment(payload)
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+
+
+@app.post("/api/calc/electrical", response_model=ElectricalResult)
+async def calc_electrical(payload: ElectricalInput):
+    """Электрические нагрузки и подбор трансформатора."""
+    try:
+        return electrical_load(payload)
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+
+
+@app.post("/api/calc/areas", response_model=AreasResult)
+async def calc_areas(payload: AreasInput):
+    """Оценка площадей корпусов."""
+    try:
+        return estimate_areas(payload)
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+
+
+@app.post("/api/calc/estimate", response_model=EstimateResult)
+async def calc_estimate(payload: EstimateInput):
+    """Смета себестоимости (переменные затраты)."""
+    try:
+        return cost_estimate(payload)
     except ValueError as e:
         raise HTTPException(status_code=400, detail=str(e))
 

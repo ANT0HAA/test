@@ -34,6 +34,7 @@ class ProductionInput(BaseModel):
 class ProductionResult(BaseModel):
     pieces_per_year: float
     pieces_per_hour: float
+    operating_hours_per_year: float        # фонд рабочего времени, ч/год
     mass_per_year_t: float                 # масса готовой продукции, т/год
     resources_per_year: dict[str, float]   # потребность ресурсов в год
     resources_per_hour: dict[str, float]   # потребность ресурсов в час
@@ -67,6 +68,7 @@ def production_program(inp: ProductionInput) -> ProductionResult:
     return ProductionResult(
         pieces_per_year=round(per_year, 1),
         pieces_per_hour=round(per_hour, 1),
+        operating_hours_per_year=round(operating_hours, 1),
         mass_per_year_t=round(per_year * inp.piece_mass_kg / 1000.0, 1),
         resources_per_year=res_year,
         resources_per_hour=res_hour,
