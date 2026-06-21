@@ -56,6 +56,7 @@ from calc import (
     EstimateInput, EstimateResult, cost_estimate,
     ShihtaInput, ShihtaResult, shihta_calc,
     buildings_from_areas, parse_capacity, production_program,
+    LabInput,
 )
 
 logging.basicConfig(level=logging.INFO)
@@ -682,6 +683,17 @@ async def calc_shihta(payload: ShihtaInput):
     """Оксидный состав массы из состава шихты."""
     try:
         return shihta_calc(payload)
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+
+
+@app.post("/api/calc/lab")
+async def calc_lab(payload: LabInput):
+    """Лабораторно-технологический расчёт по сырью (усреднение, отощитель,
+    чувствительность, штабель, питатели, схема формования)."""
+    from calc import lab_report
+    try:
+        return lab_report(payload)
     except ValueError as e:
         raise HTTPException(status_code=400, detail=str(e))
 

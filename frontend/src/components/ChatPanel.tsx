@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from 'react'
-import { Send, Upload, Trash2, CircleDot, FileDown, Plus, Loader2, ClipboardList, FileText, History, FolderOpen } from 'lucide-react'
+import { Send, Upload, Trash2, CircleDot, FileDown, Plus, Loader2, ClipboardList, FileText, History, FolderOpen, FlaskConical } from 'lucide-react'
 import type { Agent, ChatMessage } from '../types'
 import type { ExportDocType } from '../api/client'
 
@@ -22,6 +22,7 @@ interface Props {
   onOpenSpec: () => void                         // спецификация проекта (расчётное ядро)
   onOpenVersions: () => void                     // история версий артефактов
   onOpenMaterials: () => void                    // данные проекта (распознанные материалы)
+  onOpenLab: () => void                          // лаборатория (расчёт по сырью)
   onAddProjectFiles: (files: FileList) => void   // загрузка файлов в проект (кнопка «+»)
   onOpenInputs: (brief: string) => void          // форма исходных данных
   projectUploading?: boolean
@@ -36,7 +37,7 @@ const EXPORT_OPTIONS: { type: ExportDocType; label: string }[] = [
 export default function ChatPanel({
   agents, selectedAgent, messages, input, connected, busy, modelLabel, exporting,
   onInputChange, onSend, onOpenUpload, onClear, onExport, onDownloadPackage,
-  onDownloadSitePlan, onOpenSpec, onOpenVersions, onOpenMaterials, onAddProjectFiles, onOpenInputs, projectUploading,
+  onDownloadSitePlan, onOpenSpec, onOpenVersions, onOpenMaterials, onOpenLab, onAddProjectFiles, onOpenInputs, projectUploading,
 }: Props) {
   const scrollRef = useRef<HTMLDivElement>(null)
   const projectFileRef = useRef<HTMLInputElement>(null)
@@ -92,6 +93,13 @@ export default function ChatPanel({
             title="Спецификация проекта"
           >
             <FileText size={16} />
+          </button>
+          <button
+            onClick={onOpenLab}
+            className="p-2 rounded-lg hover:bg-ink-600 text-muted hover:text-gray-200 transition-colors"
+            title="Лаборатория (расчёт по сырью)"
+          >
+            <FlaskConical size={16} />
           </button>
           <button
             onClick={onOpenMaterials}

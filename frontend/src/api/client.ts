@@ -208,6 +208,25 @@ export async function uploadProjectMaterial(
   return res.json()
 }
 
+export interface LabClay { name: string; plasticity: number; fraction?: number }
+export interface LabRequest {
+  clays: LabClay[]
+  forming: string
+  target_plasticity: number
+  sensitivity_coeff?: number | null
+  annual_clay_t?: number
+  raw_tph?: number
+  max_feeders: number
+}
+
+/** Лабораторно-технологический расчёт по сырью. */
+export async function calcLab(req: LabRequest): Promise<any> {
+  return jsonOrThrow(await authedFetch(`${API_BASE}/api/calc/lab`, {
+    method: 'POST', headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(req),
+  }))
+}
+
 /** Список фрагментов материалов проекта (что добавлено) — для просмотра/правки. */
 export async function fetchMaterials(projectId: string): Promise<ProjectMaterial[]> {
   const res = await authedFetch(`${API_BASE}/api/projects/${projectId}/materials`)

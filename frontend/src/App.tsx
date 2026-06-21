@@ -9,6 +9,7 @@ import ClarifyModal from './components/ClarifyModal'
 import SpecModal from './components/SpecModal'
 import VersionsModal from './components/VersionsModal'
 import MaterialsModal from './components/MaterialsModal'
+import LabModal from './components/LabModal'
 import AuthScreen from './components/AuthScreen'
 import {
   fetchAgents, useChatSocket, clearSession, fetchLlmStatus, type LlmStatus,
@@ -42,6 +43,7 @@ export default function App() {
   const [showSpec, setShowSpec] = useState(false)
   const [showVersions, setShowVersions] = useState(false)
   const [showMaterials, setShowMaterials] = useState(false)
+  const [showLab, setShowLab] = useState(false)
   const [clarify, setClarify] = useState<{ message: string; agent: string; fields: InputField[] } | null>(null)
 
   // Ref to the id of the currently-streaming assistant message
@@ -401,6 +403,7 @@ export default function App() {
           onOpenSpec={() => setShowSpec(true)}
           onOpenVersions={() => setShowVersions(true)}
           onOpenMaterials={() => setShowMaterials(true)}
+          onOpenLab={() => setShowLab(true)}
           onAddProjectFiles={handleAddProjectFiles}
           onOpenInputs={handleOpenInputs}
           projectUploading={projectUploading}
@@ -454,6 +457,12 @@ export default function App() {
           projectId={activeProjectId}
           projectName={activeProject?.name ?? 'проект'}
           onClose={() => setShowMaterials(false)}
+        />
+      )}
+      {showLab && (
+        <LabModal
+          projectName={activeProject?.name ?? 'проект'}
+          onClose={() => setShowLab(false)}
         />
       )}
       {showAdmin && (
