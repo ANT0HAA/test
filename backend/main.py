@@ -43,6 +43,10 @@ from models.schemas import (
 from pydantic import BaseModel
 from storage import db as storage
 from export import build_document
+from calc import (
+    ProductionInput, ProductionResult, production_program,
+    DryerInput, DryerResult, dryer_calc,
+)
 
 logging.basicConfig(level=logging.INFO)
 log = logging.getLogger(__name__)
@@ -438,6 +442,26 @@ async def delete_agent(industry: str, agent_id: str):
     await storage.delete_agent_override(industry, agent_id)
     await _refresh_registry()
     return {"ok": True}
+
+
+# ─── REST: расчётное ядро (детерминированные расчёты) ─────────────────
+
+@app.post("/api/calc/production", response_model=ProductionResult)
+async def calc_production(payload: ProductionInput):
+    """Производственная программа и потребность ресурсов (по нормам из документа)."""
+    try:
+        return production_program(payload)
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+
+
+@app.post("/api/calc/dryer", response_model=DryerResult)
+async def calc_dryer(payload: DryerInput):
+    """Теплотехнический расчёт сушила (расход воздуха/теплоносителя)."""
+    try:
+        return dryer_calc(payload)
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
 
 
 # ─── REST: health ─────────────────────────────────────────────────────
