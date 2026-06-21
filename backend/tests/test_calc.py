@@ -5,7 +5,7 @@
 from calc import (
     ProductionInput, production_program, DryerInput, dryer_calc,
     EquipmentInput, select_equipment, build_summary, parse_capacity,
-    ElectricalInput, electrical_load, AreasInput, estimate_areas,
+    ElectricalInput, electrical_load, AreasInput, estimate_areas, buildings_from_areas,
     EstimateInput, cost_estimate,
     Component, ShihtaInput, shihta_calc,
 )
@@ -78,6 +78,16 @@ def test_electrical_and_areas():
     assert el.installed_power_kw > 0 and el.transformer_kva >= 250
     ar = estimate_areas(AreasInput(pieces_per_year=15_000_000))
     assert ar.total_m2 > 0 and "Обжигательный корпус" in ar.areas_m2
+
+
+def test_buildings_from_areas():
+    # При 15 млн шт/год габариты совпадают с базовыми корпусами генплана
+    b = {x["name"]: x for x in buildings_from_areas(15_000_000)}
+    assert b["Обжигательный корпус"]["width_m"] == 18 and b["Обжигательный корпус"]["length_m"] == 120
+    assert b["Формовочный цех"]["width_m"] == 24
+    # При большем объёме корпуса крупнее
+    big = {x["name"]: x for x in buildings_from_areas(40_000_000)}
+    assert big["Обжигательный корпус"]["length_m"] > 120
 
 
 def test_shihta_matches_document():

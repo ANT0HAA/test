@@ -51,6 +51,7 @@ from calc import (
     AreasInput, AreasResult, estimate_areas,
     EstimateInput, EstimateResult, cost_estimate,
     ShihtaInput, ShihtaResult, shihta_calc,
+    buildings_from_areas, parse_capacity, production_program,
 )
 
 logging.basicConfig(level=logging.INFO)
@@ -748,7 +749,7 @@ async def project_package(project_id: str):
         # Генплан завода через коннектор Компас (если запущен) — best-effort
         try:
             import httpx
-            buildings = await _design_buildings(project.name)
+            buildings = await _project_buildings(project)
             gen = {"kind": "site_plan", "title": f"Генплан — {project.name}",
                    "project": project.id[:8], "designer": "AI Конструкторское бюро",
                    "buildings": [b.model_dump() for b in buildings]}
@@ -895,6 +896,20 @@ class _BuildingListLLM(BaseModel):
     buildings: list[_BuildingLLM] = []
 
 
+async def _project_buildings(project) -> list[BuildingSpec]:
+    """Состав корпусов проекта: из ВЫЧИСЛЕННЫХ площадей (если задан объём),
+    иначе — предложение Конструктора по названию проекта."""
+    try:
+        inputs = await storage.get_project_inputs(project.id)
+        prod_in = parse_capacity(str(inputs.get("capacity", ""))) if inputs else None
+        if prod_in:
+            prog = production_program(prod_in)
+            return [BuildingSpec(**b) for b in buildings_from_areas(prog.pieces_per_year)]
+    except Exception:
+        log.info("Корпуса по площадям не получены — откат на LLM", exc_info=True)
+    return await _design_buildings(project.name)
+
+
 async def _design_buildings(brief: str) -> list[BuildingSpec]:
     """Конструктор (LLM) предлагает состав корпусов по брифу. Откат — типовой состав."""
     try:
@@ -952,6 +967,29 @@ async def kompas_design(payload: KompasDesignRequest):
         "Content-Disposition": 'attachment; filename="site_plan.cdw"',
         "X-Buildings-Count": str(len(buildings)),
     }
+    return Response(content=r.content, media_type="application/octet-stream", headers=headers)
+
+
+@app.post("/api/projects/{project_id}/site-plan")
+async def project_site_plan(project_id: str):
+    """Генплан завода по ВЫЧИСЛЕННЫМ площадям проекта (через коннектор Компас)."""
+    import httpx
+    project = await storage.get_project(project_id)
+    if not project:
+        raise HTTPException(status_code=404, detail="Проект не найден")
+    buildings = await _project_buildings(project)
+    gen = {"kind": "site_plan", "title": f"Генплан — {project.name}",
+           "project": project.id[:8], "designer": "AI Конструкторское бюро",
+           "buildings": [b.model_dump() for b in buildings]}
+    url = settings.kompas_connector_url.rstrip("/")
+    try:
+        async with httpx.AsyncClient(timeout=180.0) as client:
+            r = await client.post(f"{url}/generate", json=gen)
+    except Exception:
+        raise HTTPException(status_code=503, detail=_KOMPAS_DOWN)
+    if r.status_code >= 400:
+        raise HTTPException(status_code=r.status_code, detail=_connector_error(r))
+    headers = {"Content-Disposition": 'attachment; filename="site_plan.cdw"'}
     return Response(content=r.content, media_type="application/octet-stream", headers=headers)
 
 

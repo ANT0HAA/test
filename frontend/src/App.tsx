@@ -8,7 +8,7 @@ import InputsFormModal from './components/InputsFormModal'
 import {
   fetchAgents, useChatSocket, clearSession, fetchLlmStatus, type LlmStatus,
   fetchProjects, createProject, deleteProject, fetchProjectDetail, fetchIndustries, fetchKnowledge,
-  exportDocument, uploadProjectMaterial, downloadProjectPackage,
+  exportDocument, uploadProjectMaterial, downloadProjectPackage, downloadSitePlan,
   fetchInputsSchema, submitProjectInputs, type ExportDocType,
 } from './api/client'
 import type { Agent, ChatMessage, Industry, InputField, KnowledgeMap, Project } from './types'
@@ -266,6 +266,18 @@ export default function App() {
     }])
   }
 
+  const handleDownloadSitePlan = async () => {
+    if (!activeProjectId || exporting) return
+    setExporting(true)
+    try {
+      await downloadSitePlan(activeProjectId)
+    } catch (e) {
+      handleError(e instanceof Error ? e.message : 'Ошибка генерации генплана')
+    } finally {
+      setExporting(false)
+    }
+  }
+
   const handleDownloadPackage = async () => {
     if (!activeProjectId || exporting) return
     setExporting(true)
@@ -332,6 +344,7 @@ export default function App() {
           onClear={handleClear}
           onExport={handleExport}
           onDownloadPackage={handleDownloadPackage}
+          onDownloadSitePlan={handleDownloadSitePlan}
           onAddProjectFiles={handleAddProjectFiles}
           onOpenInputs={handleOpenInputs}
           projectUploading={projectUploading}

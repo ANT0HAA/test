@@ -18,6 +18,7 @@ interface Props {
   onClear: () => void
   onExport: (docType: ExportDocType) => void
   onDownloadPackage: () => void                  // полный пакет проекта (ZIP)
+  onDownloadSitePlan: () => void                 // генплан (Компас, по площадям)
   onAddProjectFiles: (files: FileList) => void   // загрузка файлов в проект (кнопка «+»)
   onOpenInputs: (brief: string) => void          // форма исходных данных
   projectUploading?: boolean
@@ -32,7 +33,7 @@ const EXPORT_OPTIONS: { type: ExportDocType; label: string }[] = [
 export default function ChatPanel({
   agents, selectedAgent, messages, input, connected, busy, modelLabel, exporting,
   onInputChange, onSend, onOpenUpload, onClear, onExport, onDownloadPackage,
-  onAddProjectFiles, onOpenInputs, projectUploading,
+  onDownloadSitePlan, onAddProjectFiles, onOpenInputs, projectUploading,
 }: Props) {
   const scrollRef = useRef<HTMLDivElement>(null)
   const projectFileRef = useRef<HTMLInputElement>(null)
@@ -111,6 +112,15 @@ export default function ChatPanel({
                     </button>
                   ))}
                   <div className="my-1 border-t border-ink-600" />
+                  <button
+                    onClick={() => {
+                      setExportOpen(false)
+                      onDownloadSitePlan()
+                    }}
+                    className="w-full text-left px-4 py-2 text-[13px] text-gray-200 hover:bg-ink-600 transition-colors"
+                  >
+                    Генплан завода (Компас)
+                  </button>
                   <button
                     onClick={() => {
                       setExportOpen(false)

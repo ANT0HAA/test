@@ -28,6 +28,23 @@ class AreasResult(BaseModel):
     notes: list[str] = []
 
 
+# Типовые пролёты корпусов, м (ширина) — для перевода площади в габариты
+_CORPUS_SPAN = {
+    "Склад сырья": 18, "Подготовительный цех": 24, "Формовочный цех": 24,
+    "Сушильный корпус": 18, "Обжигательный корпус": 18, "Склад готовой продукции": 36,
+}
+
+
+def buildings_from_areas(pieces_per_year: float) -> list[dict]:
+    """Корпуса (название, ширина, длина) из вычисленных площадей — для генплана."""
+    ar = estimate_areas(AreasInput(pieces_per_year=pieces_per_year))
+    out: list[dict] = []
+    for name, area in ar.areas_m2.items():
+        span = _CORPUS_SPAN.get(name, 18)
+        out.append({"name": name, "width_m": float(span), "length_m": round(area / span)})
+    return out
+
+
 def estimate_areas(inp: AreasInput) -> AreasResult:
     # Площади масштабируются как ~корень из отношения производительностей
     # (рост габаритов медленнее линейного), но не меньше базовых/2.

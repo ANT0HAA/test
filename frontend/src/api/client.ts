@@ -163,6 +163,24 @@ export async function submitProjectInputs(
   return res.json()
 }
 
+/** Сгенерировать и скачать генплан завода по вычисленным площадям (Компас). */
+export async function downloadSitePlan(projectId: string): Promise<void> {
+  const res = await fetch(`${API_BASE}/api/projects/${projectId}/site-plan`, { method: 'POST' })
+  if (!res.ok) {
+    const err = await res.json().catch(() => ({ detail: 'Ошибка генерации генплана' }))
+    throw new Error(err.detail || 'Ошибка генерации генплана')
+  }
+  const blob = await res.blob()
+  const url = URL.createObjectURL(blob)
+  const a = document.createElement('a')
+  a.href = url
+  a.download = 'Генплан.cdw'
+  document.body.appendChild(a)
+  a.click()
+  a.remove()
+  URL.revokeObjectURL(url)
+}
+
 /** Скачать полный пакет проекта (ZIP с документами и чертежом). */
 export async function downloadProjectPackage(projectId: string): Promise<void> {
   const res = await fetch(`${API_BASE}/api/projects/${projectId}/package`)

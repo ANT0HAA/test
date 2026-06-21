@@ -12,7 +12,7 @@ from .production import ProductionInput, ProductionResult, production_program
 from .dryer import DryerInput, DryerResult, dryer_calc
 from .equipment import EquipmentInput, EquipmentResult, select_equipment
 from .electrical import ElectricalInput, ElectricalResult, electrical_load
-from .areas import AreasInput, AreasResult, estimate_areas
+from .areas import AreasInput, AreasResult, estimate_areas, buildings_from_areas
 from .estimate import EstimateInput, EstimateResult, cost_estimate
 from .shihta import Component, ShihtaInput, ShihtaResult, shihta_calc
 from .summary import build_summary, parse_capacity
@@ -22,7 +22,7 @@ __all__ = [
     "DryerInput", "DryerResult", "dryer_calc",
     "EquipmentInput", "EquipmentResult", "select_equipment",
     "ElectricalInput", "ElectricalResult", "electrical_load",
-    "AreasInput", "AreasResult", "estimate_areas",
+    "AreasInput", "AreasResult", "estimate_areas", "buildings_from_areas",
     "EstimateInput", "EstimateResult", "cost_estimate",
     "Component", "ShihtaInput", "ShihtaResult", "shihta_calc",
     "build_summary", "parse_capacity",
