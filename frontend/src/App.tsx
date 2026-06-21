@@ -8,6 +8,7 @@ import InputsFormModal from './components/InputsFormModal'
 import ClarifyModal from './components/ClarifyModal'
 import SpecModal from './components/SpecModal'
 import VersionsModal from './components/VersionsModal'
+import MaterialsModal from './components/MaterialsModal'
 import AuthScreen from './components/AuthScreen'
 import {
   fetchAgents, useChatSocket, clearSession, fetchLlmStatus, type LlmStatus,
@@ -40,6 +41,7 @@ export default function App() {
   const [inputsFields, setInputsFields] = useState<InputField[] | null>(null)
   const [showSpec, setShowSpec] = useState(false)
   const [showVersions, setShowVersions] = useState(false)
+  const [showMaterials, setShowMaterials] = useState(false)
   const [clarify, setClarify] = useState<{ message: string; agent: string; fields: InputField[] } | null>(null)
 
   // Ref to the id of the currently-streaming assistant message
@@ -275,6 +277,8 @@ export default function App() {
         content: `Файлы добавлены в проект (${total} фрагментов). Эти данные имеют приоритет над базой знаний.`,
         streaming: false,
       }])
+      // Показать, что именно распознано/добавлено — с возможностью правки и удаления
+      if (total > 0) setShowMaterials(true)
     } catch (e) {
       handleError(e instanceof Error ? e.message : 'Ошибка загрузки файлов проекта')
     } finally {
@@ -396,6 +400,7 @@ export default function App() {
           onDownloadSitePlan={handleDownloadSitePlan}
           onOpenSpec={() => setShowSpec(true)}
           onOpenVersions={() => setShowVersions(true)}
+          onOpenMaterials={() => setShowMaterials(true)}
           onAddProjectFiles={handleAddProjectFiles}
           onOpenInputs={handleOpenInputs}
           projectUploading={projectUploading}
@@ -442,6 +447,13 @@ export default function App() {
           projectId={activeProjectId}
           projectName={activeProject?.name ?? 'проект'}
           onClose={() => setShowVersions(false)}
+        />
+      )}
+      {showMaterials && activeProjectId && (
+        <MaterialsModal
+          projectId={activeProjectId}
+          projectName={activeProject?.name ?? 'проект'}
+          onClose={() => setShowMaterials(false)}
         />
       )}
       {showAdmin && (

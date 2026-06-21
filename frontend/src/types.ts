@@ -112,6 +112,13 @@ export interface LabAnalysis {
   } | null
 }
 
+export interface ProjectMaterial {
+  id: string
+  source: string
+  chunk: number
+  text: string
+}
+
 export interface ProjectVersion {
   id: number
   label: string

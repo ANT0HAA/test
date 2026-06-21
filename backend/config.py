@@ -36,5 +36,13 @@ class Settings(BaseSettings):
     # Anthropic (опционально, если переключиться обратно)
     anthropic_api_key: str = ""
 
+    # OCR скан-PDF (Tesseract). Пути авто-определяются, можно переопределить в .env.
+    ocr_enabled: bool = True
+    tesseract_cmd: str = ""           # путь к tesseract.exe (пусто → автопоиск)
+    tessdata_prefix: str = ""         # папка с *.traineddata (пусто → backend/.tessdata)
+    ocr_lang: str = "rus+eng"
+    ocr_dpi: int = 200
+    ocr_max_pages: int = 60           # предел страниц на OCR одного файла (0 — без лимита)
+
 
 settings = Settings()

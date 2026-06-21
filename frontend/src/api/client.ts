@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState, useCallback } from 'react'
-import type { Agent, AgentDetail, Industry, InputField, KnowledgeMap, LabAnalysis, Project, ProjectMessageInfo, ProjectSpec, ProjectVersion, WsEvent } from '../types'
+import type { Agent, AgentDetail, Industry, InputField, KnowledgeMap, LabAnalysis, Project, ProjectMaterial, ProjectMessageInfo, ProjectSpec, ProjectVersion, WsEvent } from '../types'
 
 const API_BASE = '' // proxied via vite
 
@@ -206,6 +206,36 @@ export async function uploadProjectMaterial(
     throw new Error(err.detail || 'Ошибка загрузки')
   }
   return res.json()
+}
+
+/** Список фрагментов материалов проекта (что добавлено) — для просмотра/правки. */
+export async function fetchMaterials(projectId: string): Promise<ProjectMaterial[]> {
+  const res = await authedFetch(`${API_BASE}/api/projects/${projectId}/materials`)
+  if (!res.ok) throw new Error('Не удалось загрузить материалы проекта')
+  return res.json()
+}
+
+/** Изменить текст фрагмента материала. */
+export async function updateMaterial(projectId: string, fragId: string, text: string): Promise<void> {
+  await jsonOrThrow(await authedFetch(
+    `${API_BASE}/api/projects/${projectId}/materials/${encodeURIComponent(fragId)}`, {
+      method: 'PATCH', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ text }),
+    }))
+}
+
+/** Удалить один фрагмент материала. */
+export async function deleteMaterial(projectId: string, fragId: string): Promise<void> {
+  await jsonOrThrow(await authedFetch(
+    `${API_BASE}/api/projects/${projectId}/materials/${encodeURIComponent(fragId)}`,
+    { method: 'DELETE' }))
+}
+
+/** Удалить все фрагменты одного источника (файла). */
+export async function deleteMaterialSource(projectId: string, source: string): Promise<void> {
+  await jsonOrThrow(await authedFetch(
+    `${API_BASE}/api/projects/${projectId}/materials?source=${encodeURIComponent(source)}`,
+    { method: 'DELETE' }))
 }
 
 /** Запросить набор полей формы исходных данных (Конструктор предлагает по брифу). */

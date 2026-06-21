@@ -34,7 +34,8 @@ from agents.definitions import (
 from graph.graph import get_graph, reset_graph, BureauState, GRAPH_RECURSION_LIMIT
 from knowledge.chroma import (
     add_file, add_project_file, add_project_text, list_collections, collection_stats,
-    delete_project_collection,
+    delete_project_collection, list_project_materials, update_project_material,
+    delete_project_material, delete_project_source,
 )
 from models.schemas import (
     UploadResponse, AgentInfo, HealthResponse,
@@ -1017,6 +1018,40 @@ async def upload_project_materials(project_id: str, file: UploadFile = File(...)
     except ValueError as e:
         raise HTTPException(status_code=422, detail=str(e))
     return UploadResponse(ok=True, chunks_added=chunks, agent="(проект)", filename=file.filename or "")
+
+
+class _MaterialEdit(BaseModel):
+    text: str
+
+
+@app.get("/api/projects/{project_id}/materials")
+async def get_project_materials(project_id: str, _=Depends(project_access)):
+    """Список фрагментов материалов проекта (что добавлено) — для просмотра/правки."""
+    return list_project_materials(project_id)
+
+
+@app.patch("/api/projects/{project_id}/materials/{frag_id}")
+async def edit_project_material(project_id: str, frag_id: str, payload: _MaterialEdit,
+                                _=Depends(project_access)):
+    """Изменить текст фрагмента материала проекта."""
+    if not update_project_material(project_id, frag_id, payload.text):
+        raise HTTPException(status_code=404, detail="Фрагмент не найден")
+    return {"ok": True}
+
+
+@app.delete("/api/projects/{project_id}/materials/{frag_id}")
+async def remove_project_material(project_id: str, frag_id: str, _=Depends(project_access)):
+    """Удалить один фрагмент материала проекта."""
+    if not delete_project_material(project_id, frag_id):
+        raise HTTPException(status_code=404, detail="Фрагмент не найден")
+    return {"ok": True}
+
+
+@app.delete("/api/projects/{project_id}/materials")
+async def remove_project_source(project_id: str, source: str, _=Depends(project_access)):
+    """Удалить все фрагменты одного источника (файла) из материалов проекта."""
+    n = delete_project_source(project_id, source)
+    return {"ok": True, "deleted": n}
 
 
 @app.delete("/api/projects/{project_id}")

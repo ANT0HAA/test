@@ -99,8 +99,10 @@ def add_project_text(text: str, project_id: str, filename: str = "исходны
 
 
 async def add_project_file(file_path: str, project_id: str) -> int:
-    """Добавить файл в материалы проекта (txt/pdf/docx/xlsx)."""
-    text = _read_file_text(Path(file_path))
+    """Добавить файл в материалы проекта (txt/pdf/docx/xlsx). OCR скан-PDF — в потоке."""
+    import asyncio
+    # Чтение/распознавание может быть тяжёлым (OCR) — не блокируем event loop
+    text = await asyncio.to_thread(_read_file_text, Path(file_path))
     chunks = _chunk_text(text)
     if not chunks:
         return 0
@@ -117,6 +119,56 @@ async def add_project_file(file_path: str, project_id: str) -> int:
         metas.append({"source": name, "chunk": i})
     if ids:
         col.add(ids=ids, documents=docs, metadatas=metas)
+    return len(ids)
+
+
+# ─── Управление материалами проекта (просмотр/правка/удаление) ─────────
+
+def list_project_materials(project_id: str) -> list[dict]:
+    """Все фрагменты материалов проекта: [{id, source, chunk, text}], по источникам."""
+    col = get_project_collection(project_id)
+    if col.count() == 0:
+        return []
+    data = col.get(include=["documents", "metadatas"])
+    ids = data.get("ids", []) or []
+    docs = data.get("documents", []) or []
+    metas = data.get("metadatas", []) or []
+    items = [
+        {"id": i, "source": (m or {}).get("source", ""),
+         "chunk": (m or {}).get("chunk", 0), "text": d}
+        for i, d, m in zip(ids, docs, metas)
+    ]
+    items.sort(key=lambda x: (x["source"], x["chunk"]))
+    return items
+
+
+def update_project_material(project_id: str, frag_id: str, text: str) -> bool:
+    """Изменить текст фрагмента материала проекта."""
+    col = get_project_collection(project_id)
+    found = col.get(ids=[frag_id])
+    if not found.get("ids"):
+        return False
+    meta = (found.get("metadatas") or [{}])[0] or {}
+    col.update(ids=[frag_id], documents=[text], metadatas=[meta])
+    return True
+
+
+def delete_project_material(project_id: str, frag_id: str) -> bool:
+    """Удалить один фрагмент материала проекта."""
+    col = get_project_collection(project_id)
+    if not col.get(ids=[frag_id]).get("ids"):
+        return False
+    col.delete(ids=[frag_id])
+    return True
+
+
+def delete_project_source(project_id: str, source: str) -> int:
+    """Удалить все фрагменты одного источника (файла). Возвращает число удалённых."""
+    col = get_project_collection(project_id)
+    found = col.get(where={"source": source})
+    ids = found.get("ids", []) or []
+    if ids:
+        col.delete(ids=ids)
     return len(ids)
 
 
@@ -195,9 +247,23 @@ def _read_file_text(path: Path) -> str:
             import PyPDF2
             with open(path, "rb") as f:
                 reader = PyPDF2.PdfReader(f)
-                return "\n".join(page.extract_text() or "" for page in reader.pages)
+                text = "\n".join(page.extract_text() or "" for page in reader.pages)
         except Exception as e:
             raise ValueError(f"Ошибка чтения PDF: {e}") from e
+        # Скан-PDF без текстового слоя → OCR (если доступен Tesseract)
+        if len(text.strip()) < 50:
+            from .ocr import ocr_available, ocr_pdf
+            if ocr_available():
+                ocr_text = ocr_pdf(path)
+                if len(ocr_text.strip()) >= 50:
+                    return ocr_text
+                raise ValueError(
+                    "PDF без текстового слоя: OCR не распознал текст "
+                    "(проверьте качество скана).")
+            raise ValueError(
+                "PDF без текстового слоя (скан). Для распознавания нужен Tesseract "
+                "(см. backend/.tessdata, config.tesseract_cmd) либо пришлите PDF с текстом.")
+        return text
 
     if suffix == ".docx":
         try:
