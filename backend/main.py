@@ -46,6 +46,7 @@ from export import build_document
 from calc import (
     ProductionInput, ProductionResult, production_program,
     DryerInput, DryerResult, dryer_calc,
+    EquipmentInput, EquipmentResult, select_equipment,
 )
 
 logging.basicConfig(level=logging.INFO)
@@ -464,6 +465,15 @@ async def calc_dryer(payload: DryerInput):
         raise HTTPException(status_code=400, detail=str(e))
 
 
+@app.post("/api/calc/equipment", response_model=EquipmentResult)
+async def calc_equipment(payload: EquipmentInput):
+    """Подбор основного оборудования по производительности."""
+    try:
+        return select_equipment(payload)
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+
+
 # ─── REST: health ─────────────────────────────────────────────────────
 
 @app.get("/api/health", response_model=HealthResponse)
@@ -623,12 +633,15 @@ async def submit_inputs(project_id: str, payload: ProjectInputsSubmit):
     """Сохранить заполненные исходные данные как материалы проекта (приоритет над БЗ)."""
     if not await storage.get_project(project_id):
         raise HTTPException(status_code=404, detail="Проект не найден")
-    lines = [f"- {k}: {v}" for k, v in payload.values.items() if str(v).strip()]
-    if not lines:
+    clean = {k: v for k, v in payload.values.items() if str(v).strip()}
+    if not clean:
         return {"ok": True, "saved": 0}
-    text = "ИСХОДНЫЕ ДАННЫЕ ПРОЕКТА (заданы пользователем):\n" + "\n".join(lines)
+    # структурно (для расчётного ядра) + текстом (для RAG-контекста)
+    await storage.set_project_inputs(project_id, clean)
+    text = "ИСХОДНЫЕ ДАННЫЕ ПРОЕКТА (заданы пользователем):\n" + \
+        "\n".join(f"- {k}: {v}" for k, v in clean.items())
     chunks = add_project_text(text, project_id, filename="исходные данные")
-    return {"ok": True, "saved": len(lines), "chunks": chunks}
+    return {"ok": True, "saved": len(clean), "chunks": chunks}
 
 
 @app.get("/api/projects/{project_id}/package")

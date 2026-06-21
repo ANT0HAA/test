@@ -28,7 +28,8 @@ from agents.definitions import (
     get_agents, routing_keywords, all_agent_ids, DEFAULT_INDUSTRY,
 )
 from knowledge.chroma import search, project_search
-from storage.db import get_memory
+from storage.db import get_memory, get_project_inputs
+from calc import build_summary
 
 
 # Установка для всех агентов: автономный расчёт, кратко, спрашивать только основное.
@@ -102,6 +103,19 @@ async def _context_block(project_id: str, agent_id: str, industry: str, query: s
       3) запомненные решения по проекту.
     """
     blocks: list[str] = []
+
+    # Детерминированные расчёты по исходным данным — приоритетные «точные цифры»
+    if project_id:
+        try:
+            inputs = await get_project_inputs(project_id)
+            calc = build_summary(inputs) if inputs else ""
+            if calc:
+                blocks.append(
+                    "--- РАСЧЁТЫ РАСЧЁТНОГО ЯДРА (точные цифры — используй их, НЕ пересчитывай) ---\n"
+                    + calc
+                )
+        except Exception:
+            pass
 
     proj = project_search(query, project_id) if project_id else ""
     if proj:

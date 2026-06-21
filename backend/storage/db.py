@@ -184,6 +184,39 @@ async def add_memory(project_id: str, agent: str, value: str, key: str = "note")
         await session.commit()
 
 
+_INPUTS_AGENT = "__inputs__"
+
+
+async def set_project_inputs(project_id: str, values: dict) -> None:
+    """Сохранить структурные исходные данные проекта (перезаписью)."""
+    import json
+    async with _SessionLocal() as session:
+        await session.execute(
+            delete(ProjectMemory).where(
+                ProjectMemory.project_id == project_id, ProjectMemory.agent == _INPUTS_AGENT)
+        )
+        session.add(ProjectMemory(project_id=project_id, agent=_INPUTS_AGENT,
+                                  key="json", value=json.dumps(values, ensure_ascii=False)))
+        await session.commit()
+
+
+async def get_project_inputs(project_id: str) -> dict:
+    """Получить структурные исходные данные проекта ({} если нет)."""
+    import json
+    async with _SessionLocal() as session:
+        result = await session.execute(
+            select(ProjectMemory).where(
+                ProjectMemory.project_id == project_id, ProjectMemory.agent == _INPUTS_AGENT)
+        )
+        row = result.scalars().first()
+    if not row:
+        return {}
+    try:
+        return json.loads(row.value)
+    except Exception:
+        return {}
+
+
 async def get_memory(project_id: str, agent: str) -> list[ProjectMemory]:
     async with _SessionLocal() as session:
         result = await session.execute(

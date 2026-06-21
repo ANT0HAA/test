@@ -2,7 +2,10 @@
 Тесты расчётного ядра. Проверяют, что формулы воспроизводят числа из проектных
 документов заказчика и корректно масштабируют нормы.
 """
-from calc import ProductionInput, production_program, DryerInput, dryer_calc
+from calc import (
+    ProductionInput, production_program, DryerInput, dryer_calc,
+    EquipmentInput, select_equipment, build_summary, parse_capacity,
+)
 
 
 def test_dryer_matches_document_example():
@@ -42,3 +45,25 @@ def test_production_from_per_shift():
     assert r.pieces_per_year == 30000 * 2 * 250              # 15 млн/год
     assert r.pieces_per_hour > 0
     assert r.mass_per_year_t > 0
+
+
+def test_parse_capacity():
+    assert parse_capacity("30000 шт/смену").pieces_per_shift == 30000
+    assert parse_capacity("60 млн шт/год").pieces_per_year == 60_000_000
+    assert parse_capacity("15000000 в год").pieces_per_year == 15_000_000
+    assert parse_capacity("") is None
+
+
+def test_equipment_selection_scales():
+    small = select_equipment(EquipmentInput(pieces_per_hour=1000))   # ~3.4*1.2/1000... малая
+    big = select_equipment(EquipmentInput(pieces_per_hour=10000))
+    assert big.raw_throughput_tph > small.raw_throughput_tph
+    assert any(i.role == "Обжиг" for i in big.items)
+    assert all(i.qty >= 1 for i in big.items)
+
+
+def test_build_summary_uses_inputs():
+    s = build_summary({"product": "облицовочный кирпич", "capacity": "30000 шт/смену"})
+    assert "Производственная программа" in s
+    assert "Оборудование" in s
+    assert "т/год" in s

@@ -10,8 +10,12 @@
 """
 from .production import ProductionInput, ProductionResult, production_program
 from .dryer import DryerInput, DryerResult, dryer_calc
+from .equipment import EquipmentInput, EquipmentResult, select_equipment
+from .summary import build_summary, parse_capacity
 
 __all__ = [
     "ProductionInput", "ProductionResult", "production_program",
     "DryerInput", "DryerResult", "dryer_calc",
+    "EquipmentInput", "EquipmentResult", "select_equipment",
+    "build_summary", "parse_capacity",
 ]
