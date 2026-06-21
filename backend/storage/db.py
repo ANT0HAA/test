@@ -9,7 +9,7 @@ import uuid
 from datetime import datetime, timezone
 
 from langchain_core.messages import BaseMessage, HumanMessage, AIMessage
-from sqlalchemy import String, Text, ForeignKey, DateTime, select, delete
+from sqlalchemy import String, Text, ForeignKey, DateTime, LargeBinary, select, delete
 from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column
 
@@ -70,6 +70,24 @@ class ProjectMemory(Base):
     agent: Mapped[str] = mapped_column(String(50), index=True)
     key: Mapped[str] = mapped_column(String(100), default="note")
     value: Mapped[str] = mapped_column(Text)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=lambda: datetime.now(timezone.utc))
+
+
+class ProjectVersion(Base):
+    """
+    Снимок артефакта проекта при генерации: структурная спецификация на момент
+    создания + (опционально) сам файл (документ/архив/чертёж). Позволяет смотреть
+    историю и скачивать прошлые версии.
+    """
+    __tablename__ = "project_versions"
+
+    id: Mapped[int] = mapped_column(primary_key=True, autoincrement=True)
+    project_id: Mapped[str] = mapped_column(ForeignKey("projects.id", ondelete="CASCADE"), index=True)
+    label: Mapped[str] = mapped_column(String(200))           # что за артефакт
+    file_name: Mapped[str] = mapped_column(String(300), default="")
+    mime: Mapped[str] = mapped_column(String(100), default="")
+    content: Mapped[bytes | None] = mapped_column(LargeBinary, nullable=True)
+    spec_json: Mapped[str] = mapped_column(Text, default="")  # снимок build_spec
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=lambda: datetime.now(timezone.utc))
 
 
@@ -323,6 +341,37 @@ async def delete_agent_override(industry: str, agent_id: str) -> None:
         if row:
             await session.delete(row)
             await session.commit()
+
+
+# ─── Версии артефактов проекта (снимок при генерации) ─────────────────
+
+async def add_version(project_id: str, label: str, spec_json: str = "",
+                      file_name: str = "", mime: str = "",
+                      content: bytes | None = None) -> int:
+    async with _SessionLocal() as session:
+        row = ProjectVersion(project_id=project_id, label=label, spec_json=spec_json,
+                             file_name=file_name, mime=mime, content=content)
+        session.add(row)
+        await session.commit()
+        await session.refresh(row)
+        return row.id
+
+
+async def list_versions(project_id: str) -> list[ProjectVersion]:
+    """Версии проекта (без бинарного содержимого) — новые сверху."""
+    async with _SessionLocal() as session:
+        result = await session.execute(
+            select(ProjectVersion.id, ProjectVersion.project_id, ProjectVersion.label,
+                   ProjectVersion.file_name, ProjectVersion.mime, ProjectVersion.created_at)
+            .where(ProjectVersion.project_id == project_id)
+            .order_by(ProjectVersion.id.desc())
+        )
+        return list(result.all())
+
+
+async def get_version(version_id: int) -> ProjectVersion | None:
+    async with _SessionLocal() as session:
+        return await session.get(ProjectVersion, version_id)
 
 
 # ─── Пользователи и сессии (авторизация) ──────────────────────────────

@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState, useCallback } from 'react'
-import type { Agent, AgentDetail, Industry, InputField, KnowledgeMap, LabAnalysis, Project, ProjectMessageInfo, ProjectSpec, WsEvent } from '../types'
+import type { Agent, AgentDetail, Industry, InputField, KnowledgeMap, LabAnalysis, Project, ProjectMessageInfo, ProjectSpec, ProjectVersion, WsEvent } from '../types'
 
 const API_BASE = '' // proxied via vite
 
@@ -232,6 +232,28 @@ export async function submitProjectInputs(
   })
   if (!res.ok) throw new Error('Не удалось сохранить данные')
   return res.json()
+}
+
+/** История версий артефактов проекта (снимки при генерации). */
+export async function fetchVersions(projectId: string): Promise<ProjectVersion[]> {
+  const res = await authedFetch(`${API_BASE}/api/projects/${projectId}/versions`)
+  if (!res.ok) throw new Error('Не удалось загрузить историю версий')
+  return res.json()
+}
+
+/** Скачать файл сохранённой версии артефакта. */
+export async function downloadVersion(projectId: string, versionId: number, fileName: string): Promise<void> {
+  const res = await authedFetch(`${API_BASE}/api/projects/${projectId}/versions/${versionId}`)
+  if (!res.ok) throw new Error('Не удалось скачать версию')
+  const blob = await res.blob()
+  const url = URL.createObjectURL(blob)
+  const a = document.createElement('a')
+  a.href = url
+  a.download = fileName || `version_${versionId}`
+  document.body.appendChild(a)
+  a.click()
+  a.remove()
+  URL.revokeObjectURL(url)
 }
 
 /** Структурированная спецификация проекта (расчётное ядро по исходным данным). */

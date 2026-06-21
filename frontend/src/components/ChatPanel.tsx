@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from 'react'
-import { Send, Upload, Trash2, CircleDot, FileDown, Plus, Loader2, ClipboardList, FileText } from 'lucide-react'
+import { Send, Upload, Trash2, CircleDot, FileDown, Plus, Loader2, ClipboardList, FileText, History } from 'lucide-react'
 import type { Agent, ChatMessage } from '../types'
 import type { ExportDocType } from '../api/client'
 
@@ -20,6 +20,7 @@ interface Props {
   onDownloadPackage: () => void                  // полный пакет проекта (ZIP)
   onDownloadSitePlan: () => void                 // генплан (Компас, по площадям)
   onOpenSpec: () => void                         // спецификация проекта (расчётное ядро)
+  onOpenVersions: () => void                     // история версий артефактов
   onAddProjectFiles: (files: FileList) => void   // загрузка файлов в проект (кнопка «+»)
   onOpenInputs: (brief: string) => void          // форма исходных данных
   projectUploading?: boolean
@@ -34,7 +35,7 @@ const EXPORT_OPTIONS: { type: ExportDocType; label: string }[] = [
 export default function ChatPanel({
   agents, selectedAgent, messages, input, connected, busy, modelLabel, exporting,
   onInputChange, onSend, onOpenUpload, onClear, onExport, onDownloadPackage,
-  onDownloadSitePlan, onOpenSpec, onAddProjectFiles, onOpenInputs, projectUploading,
+  onDownloadSitePlan, onOpenSpec, onOpenVersions, onAddProjectFiles, onOpenInputs, projectUploading,
 }: Props) {
   const scrollRef = useRef<HTMLDivElement>(null)
   const projectFileRef = useRef<HTMLInputElement>(null)
@@ -90,6 +91,13 @@ export default function ChatPanel({
             title="Спецификация проекта"
           >
             <FileText size={16} />
+          </button>
+          <button
+            onClick={onOpenVersions}
+            className="p-2 rounded-lg hover:bg-ink-600 text-muted hover:text-gray-200 transition-colors"
+            title="История версий"
+          >
+            <History size={16} />
           </button>
           <div className="relative">
             <button

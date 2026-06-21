@@ -7,6 +7,7 @@ import AdminModal from './components/AdminModal'
 import InputsFormModal from './components/InputsFormModal'
 import ClarifyModal from './components/ClarifyModal'
 import SpecModal from './components/SpecModal'
+import VersionsModal from './components/VersionsModal'
 import AuthScreen from './components/AuthScreen'
 import {
   fetchAgents, useChatSocket, clearSession, fetchLlmStatus, type LlmStatus,
@@ -38,6 +39,7 @@ export default function App() {
   const [projectUploading, setProjectUploading] = useState(false)
   const [inputsFields, setInputsFields] = useState<InputField[] | null>(null)
   const [showSpec, setShowSpec] = useState(false)
+  const [showVersions, setShowVersions] = useState(false)
   const [clarify, setClarify] = useState<{ message: string; agent: string; fields: InputField[] } | null>(null)
 
   // Ref to the id of the currently-streaming assistant message
@@ -393,6 +395,7 @@ export default function App() {
           onDownloadPackage={handleDownloadPackage}
           onDownloadSitePlan={handleDownloadSitePlan}
           onOpenSpec={() => setShowSpec(true)}
+          onOpenVersions={() => setShowVersions(true)}
           onAddProjectFiles={handleAddProjectFiles}
           onOpenInputs={handleOpenInputs}
           projectUploading={projectUploading}
@@ -432,6 +435,13 @@ export default function App() {
           projectName={activeProject?.name ?? 'проект'}
           onClose={() => setShowSpec(false)}
           onEditInputs={() => handleOpenInputs(input)}
+        />
+      )}
+      {showVersions && activeProjectId && (
+        <VersionsModal
+          projectId={activeProjectId}
+          projectName={activeProject?.name ?? 'проект'}
+          onClose={() => setShowVersions(false)}
         />
       )}
       {showAdmin && (

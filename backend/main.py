@@ -909,6 +909,40 @@ async def project_spec(project_id: str, _=Depends(project_access)):
     return build_spec(inputs)
 
 
+async def _spec_snapshot(project_id: str) -> str:
+    """JSON-снимок спецификации проекта на текущий момент (для версии артефакта)."""
+    from calc import build_spec
+    try:
+        inputs = await storage.get_project_inputs(project_id) or {}
+        return json.dumps(build_spec(inputs), ensure_ascii=False)
+    except Exception:
+        return ""
+
+
+@app.get("/api/projects/{project_id}/versions")
+async def project_versions(project_id: str, _=Depends(project_access)):
+    """История версий артефактов проекта (без бинарного содержимого)."""
+    rows = await storage.list_versions(project_id)
+    return [
+        {"id": r.id, "label": r.label, "file_name": r.file_name,
+         "mime": r.mime, "created_at": r.created_at.isoformat(),
+         "has_file": bool(r.file_name)}
+        for r in rows
+    ]
+
+
+@app.get("/api/projects/{project_id}/versions/{version_id}")
+async def download_version(project_id: str, version_id: int, _=Depends(project_access)):
+    """Скачать файл сохранённой версии артефакта."""
+    row = await storage.get_version(version_id)
+    if not row or row.project_id != project_id or not row.content:
+        raise HTTPException(status_code=404, detail="Версия или файл не найдены")
+    quoted = quote(row.file_name or f"version_{version_id}")
+    headers = {"Content-Disposition": f"attachment; filename*=UTF-8''{quoted}"}
+    return Response(content=row.content,
+                    media_type=row.mime or "application/octet-stream", headers=headers)
+
+
 @app.get("/api/projects/{project_id}/package")
 async def project_package(project=Depends(project_access)):
     """Полный пакет проекта одним архивом: записка (DOCX), ведомость (XLSX),
@@ -951,7 +985,16 @@ async def project_package(project=Depends(project_access)):
         )
         z.writestr("manifest.txt", manifest.encode("utf-8"))
 
-    quoted = quote(f"{project.name}_пакет.zip")
+    fname = f"{project.name}_пакет.zip"
+    try:
+        await storage.add_version(project_id, "Пакет проекта (ZIP)",
+                                  spec_json=await _spec_snapshot(project_id),
+                                  file_name=fname, mime="application/zip",
+                                  content=buf.getvalue())
+    except Exception:
+        log.info("Версия пакета не сохранена", exc_info=True)
+
+    quoted = quote(fname)
     headers = {"Content-Disposition": f"attachment; filename*=UTF-8''{quoted}"}
     return Response(content=buf.getvalue(), media_type="application/zip", headers=headers)
 
@@ -1005,6 +1048,14 @@ async def export_document(payload: ExportRequest, user=Depends(get_current_user)
         raise HTTPException(status_code=404, detail="Проект не найден")
     except ValueError as e:
         raise HTTPException(status_code=400, detail=str(e))
+
+    # Снимок версии: документ + спецификация на момент генерации
+    try:
+        await storage.add_version(payload.project_id, f"Документ {payload.doc_type.upper()}",
+                                  spec_json=await _spec_snapshot(payload.project_id),
+                                  file_name=filename, mime=mime, content=content)
+    except Exception:
+        log.info("Версия документа не сохранена", exc_info=True)
 
     # RFC 5987 — корректное имя файла с кириллицей
     quoted = quote(filename)
@@ -1169,6 +1220,13 @@ async def project_site_plan(project=Depends(project_access)):
         raise HTTPException(status_code=503, detail=_KOMPAS_DOWN)
     if r.status_code >= 400:
         raise HTTPException(status_code=r.status_code, detail=_connector_error(r))
+    try:
+        await storage.add_version(project_id, "Генплан (Компас)",
+                                  spec_json=await _spec_snapshot(project_id),
+                                  file_name="Генплан.cdw",
+                                  mime="application/octet-stream", content=r.content)
+    except Exception:
+        log.info("Версия генплана не сохранена", exc_info=True)
     headers = {"Content-Disposition": 'attachment; filename="site_plan.cdw"'}
     return Response(content=r.content, media_type="application/octet-stream", headers=headers)
 

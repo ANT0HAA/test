@@ -112,6 +112,15 @@ export interface LabAnalysis {
   } | null
 }
 
+export interface ProjectVersion {
+  id: number
+  label: string
+  file_name: string
+  mime: string
+  created_at: string
+  has_file: boolean
+}
+
 export type WsEvent =
   | { type: 'agent_start'; agent: string; display_name: string }
   | { type: 'token'; content: string; agent: string }
