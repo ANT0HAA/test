@@ -14,6 +14,7 @@ from .equipment import EquipmentInput, EquipmentResult, select_equipment
 from .electrical import ElectricalInput, ElectricalResult, electrical_load
 from .areas import AreasInput, AreasResult, estimate_areas
 from .estimate import EstimateInput, EstimateResult, cost_estimate
+from .shihta import Component, ShihtaInput, ShihtaResult, shihta_calc
 from .summary import build_summary, parse_capacity
 
 __all__ = [
@@ -23,5 +24,6 @@ __all__ = [
     "ElectricalInput", "ElectricalResult", "electrical_load",
     "AreasInput", "AreasResult", "estimate_areas",
     "EstimateInput", "EstimateResult", "cost_estimate",
+    "Component", "ShihtaInput", "ShihtaResult", "shihta_calc",
     "build_summary", "parse_capacity",
 ]

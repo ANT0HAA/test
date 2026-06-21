@@ -7,6 +7,7 @@ from calc import (
     EquipmentInput, select_equipment, build_summary, parse_capacity,
     ElectricalInput, electrical_load, AreasInput, estimate_areas,
     EstimateInput, cost_estimate,
+    Component, ShihtaInput, shihta_calc,
 )
 
 
@@ -77,6 +78,27 @@ def test_electrical_and_areas():
     assert el.installed_power_kw > 0 and el.transformer_kva >= 250
     ar = estimate_areas(AreasInput(pieces_per_year=15_000_000))
     assert ar.total_m2 > 0 and "Обжигательный корпус" in ar.areas_m2
+
+
+def test_shihta_matches_document():
+    # Глина 31.9% при SiO2 52.43% даёт 16.72% SiO2 (число из «Расчёт состава шихты»).
+    # Остальные компоненты без оксидов (суммируем до 100%).
+    inp = ShihtaInput(components=[
+        Component(name="глина огнеупорная", fraction=31.9, oxides={"SiO2": 52.43, "Al2O3": 32.21}),
+        Component(name="прочее", fraction=68.1, oxides={}),
+    ])
+    r = shihta_calc(inp)
+    assert abs(r.composition["SiO2"] - 16.72) < 0.05
+    assert abs(r.composition["Al2O3"] - 10.27) < 0.05
+
+
+def test_shihta_normalizes():
+    r = shihta_calc(ShihtaInput(components=[
+        Component(name="A", fraction=40, oxides={"SiO2": 50}),
+        Component(name="B", fraction=60, oxides={"SiO2": 80}),
+    ]))
+    assert abs(r.composition["SiO2"] - 68.0) < 0.01   # 40*50/100 + 60*80/100
+    assert r.normalized_fractions["A"] == 40.0
 
 
 def test_build_summary_uses_inputs():

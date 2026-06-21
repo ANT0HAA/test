@@ -50,6 +50,7 @@ from calc import (
     ElectricalInput, ElectricalResult, electrical_load,
     AreasInput, AreasResult, estimate_areas,
     EstimateInput, EstimateResult, cost_estimate,
+    ShihtaInput, ShihtaResult, shihta_calc,
 )
 
 logging.basicConfig(level=logging.INFO)
@@ -502,6 +503,55 @@ async def calc_estimate(payload: EstimateInput):
         return cost_estimate(payload)
     except ValueError as e:
         raise HTTPException(status_code=400, detail=str(e))
+
+
+@app.post("/api/calc/shihta", response_model=ShihtaResult)
+async def calc_shihta(payload: ShihtaInput):
+    """Оксидный состав массы из состава шихты."""
+    try:
+        return shihta_calc(payload)
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+
+
+class _OxidesLLM(BaseModel):
+    components: list[dict] = []   # [{name, fraction, oxides:{SiO2:..}}]
+    summary: str = ""
+
+
+@app.post("/api/projects/{project_id}/analyze-lab")
+async def analyze_lab(project_id: str):
+    """Извлечь хим. состав сырья из приложенного отчёта лаборатории (LLM) и,
+    при наличии данных, посчитать состав шихты. Пусто, если отчёта нет."""
+    if not await storage.get_project(project_id):
+        raise HTTPException(status_code=404, detail="Проект не найден")
+    from knowledge.chroma import project_search
+    lab_text = project_search("химический состав глины оксиды влажность пластичность", project_id)
+    if not lab_text:
+        return {"found": False, "detail": "Нет материалов проекта (приложите отчёт лаборатории)."}
+    try:
+        from graph.graph import _llm
+        from langchain_core.messages import SystemMessage, HumanMessage
+        system = (
+            "Ты — технолог. Из отчёта лаборатории извлеки сырьевые компоненты и их "
+            "оксидный состав (%). Верни СТРОГО JSON: components=[{name, fraction, "
+            "oxides:{SiO2, Al2O3, Fe2O3, CaO, MgO, ...}}], summary — кратко о пригодности."
+        )
+        llm = _llm(streaming=False).with_structured_output(_OxidesLLM)
+        res: _OxidesLLM = await llm.ainvoke(
+            [SystemMessage(content=system), HumanMessage(content=lab_text[:6000])])
+        comps = [c for c in res.components if c.get("name")]
+        shihta = None
+        valid = [ShihtaInput.model_validate({"components": comps})] if comps else []
+        if valid and any(c.get("oxides") for c in comps):
+            try:
+                shihta = shihta_calc(valid[0]).model_dump()
+            except Exception:
+                shihta = None
+        return {"found": True, "components": comps, "summary": res.summary, "shihta": shihta}
+    except Exception as e:
+        log.info("Разбор лаборатории не удался", exc_info=True)
+        return {"found": True, "components": [], "summary": "", "error": str(e)[:120]}
 
 
 # ─── REST: health ─────────────────────────────────────────────────────
