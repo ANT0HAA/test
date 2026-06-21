@@ -51,6 +51,14 @@ def get_project_collection(project_id: str) -> chromadb.Collection:
     )
 
 
+def delete_project_collection(project_id: str) -> None:
+    """Удалить коллекцию материалов проекта (при удалении проекта)."""
+    try:
+        get_client().delete_collection(f"proj_{project_id}")
+    except Exception:
+        pass  # коллекции могло не быть
+
+
 def project_search(query: str, project_id: str, n_results: int = 5) -> str:
     """Поиск по материалам проекта. Пусто, если материалов нет."""
     if not project_id:

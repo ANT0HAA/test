@@ -86,6 +86,11 @@ export async function createProject(name: string, industry = 'ceramics'): Promis
   return res.json()
 }
 
+export async function deleteProject(projectId: string): Promise<void> {
+  const res = await fetch(`${API_BASE}/api/projects/${projectId}`, { method: 'DELETE' })
+  if (!res.ok) throw new Error('Не удалось удалить проект')
+}
+
 export async function fetchProjectDetail(
   projectId: string
 ): Promise<Project & { messages: ProjectMessageInfo[] }> {

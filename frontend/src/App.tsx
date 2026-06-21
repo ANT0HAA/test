@@ -7,7 +7,7 @@ import AdminModal from './components/AdminModal'
 import InputsFormModal from './components/InputsFormModal'
 import {
   fetchAgents, useChatSocket, clearSession, fetchLlmStatus, type LlmStatus,
-  fetchProjects, createProject, fetchProjectDetail, fetchIndustries, fetchKnowledge,
+  fetchProjects, createProject, deleteProject, fetchProjectDetail, fetchIndustries, fetchKnowledge,
   exportDocument, uploadProjectMaterial, downloadProjectPackage,
   fetchInputsSchema, submitProjectInputs, type ExportDocType,
 } from './api/client'
@@ -95,6 +95,26 @@ export default function App() {
     const created = await createProject(name, industry)
     setProjects((prev) => [created, ...prev])
     setActiveProjectId(created.id)
+  }
+
+  const handleDeleteProject = async (id: string) => {
+    try {
+      await deleteProject(id)
+      const rest = projects.filter((p) => p.id !== id)
+      setProjects(rest)
+      if (activeProjectId === id) {
+        if (rest.length) {
+          setActiveProjectId(rest[0].id)
+        } else {
+          const created = await createProject('Проект по умолчанию')
+          setProjects([created])
+          setActiveProjectId(created.id)
+        }
+        setMessages([])
+      }
+    } catch (e) {
+      handleError(e instanceof Error ? e.message : 'Не удалось удалить проект')
+    }
   }
 
   const llmReady =
@@ -289,6 +309,7 @@ export default function App() {
           industries={industries}
           onSelect={setActiveProjectId}
           onCreate={handleCreateProject}
+          onDelete={handleDeleteProject}
         />
         {llm && !llmReady && (
           <div className="bg-amber-950/40 border-b border-amber-900/50 px-6 py-2.5 text-[12px] text-amber-200 font-mono flex items-center gap-2">

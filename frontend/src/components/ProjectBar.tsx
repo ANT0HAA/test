@@ -1,5 +1,5 @@
 import { useState } from 'react'
-import { Folder, Plus, X } from 'lucide-react'
+import { Folder, Plus, X, Trash2 } from 'lucide-react'
 import type { Industry, Project } from '../types'
 
 interface Props {
@@ -8,10 +8,11 @@ interface Props {
   industries: Industry[]
   onSelect: (id: string) => void
   onCreate: (name: string, industry: string) => void
+  onDelete: (id: string) => void
 }
 
 export default function ProjectBar({
-  projects, activeId, industries, onSelect, onCreate,
+  projects, activeId, industries, onSelect, onCreate, onDelete,
 }: Props) {
   const [open, setOpen] = useState(false)
   const [name, setName] = useState('')
@@ -53,6 +54,18 @@ export default function ProjectBar({
       >
         <Plus size={14} />
       </button>
+      {activeProject && (
+        <button
+          onClick={() => {
+            if (confirm(`Удалить проект «${activeProject.name}» со всей историей и материалами?`))
+              onDelete(activeProject.id)
+          }}
+          className="p-1 rounded-lg hover:bg-ink-600 text-faint hover:text-red-300 transition-colors"
+          title="Удалить проект"
+        >
+          <Trash2 size={14} />
+        </button>
+      )}
 
       {open && (
         <>

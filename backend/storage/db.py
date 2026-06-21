@@ -111,6 +111,17 @@ async def list_projects() -> list[Project]:
         return list(result.scalars().all())
 
 
+async def delete_project(project_id: str) -> bool:
+    """Удалить проект (сообщения и память удалятся каскадом по FK). True, если был."""
+    async with _SessionLocal() as session:
+        project = await session.get(Project, project_id)
+        if not project:
+            return False
+        await session.delete(project)
+        await session.commit()
+        return True
+
+
 async def get_or_create_project(project_id: str, default_name: str = "Проект по умолчанию") -> Project:
     """Получить проект или лениво создать с указанным id (обратная совместимость со старым session_id)."""
     project = await get_project(project_id)

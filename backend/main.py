@@ -31,6 +31,7 @@ from agents.definitions import (
 from graph.graph import get_graph, reset_graph, BureauState, GRAPH_RECURSION_LIMIT
 from knowledge.chroma import (
     add_file, add_project_file, add_project_text, list_collections, collection_stats,
+    delete_project_collection,
 )
 from models.schemas import (
     UploadResponse, AgentInfo, HealthResponse,
@@ -530,25 +531,19 @@ async def get_project(project_id: str):
     )
 
 
-# Курируемый набор исходных данных кирпичного завода (надёжный откат)
+# Минимальный набор: ТОЛЬКО то, без чего непонятна цель проекта.
+# Всё остальное (хим. состав, нормы ввода, режимы, оборудование, энергию, площади и т.д.)
+# бюро выводит само из отчётов лаборатории и расчётов.
 _DEFAULT_INPUT_FIELDS = [
-    InputField(key="product_type", label="Тип кирпича", type="select",
-               options=["рядовой", "облицовочный", "клинкерный", "поризованный"]),
-    InputField(key="format", label="Формат изделия", type="text", placeholder="1НФ 250×120×65 мм"),
-    InputField(key="strength", label="Марка прочности", type="select",
-               options=["М100", "М125", "М150", "М175", "М200", "М250", "М300"]),
-    InputField(key="frost", label="Морозостойкость", type="select",
-               options=["F25", "F35", "F50", "F75", "F100"]),
-    InputField(key="capacity", label="Производительность", type="number", unit="шт/смену"),
-    InputField(key="shifts", label="Смен в сутки", type="number"),
-    InputField(key="hours", label="Часов в смене", type="number", placeholder="8"),
-    InputField(key="forming", label="Способ формования", type="select",
-               options=["пластическое (вакуум-пресс)", "полусухое прессование"]),
-    InputField(key="clay", label="Тип глины / сырьё", type="text",
-               placeholder="из отчёта лаборатории"),
-    InputField(key="moisture", label="Карьерная влажность сырья", type="number", unit="%"),
-    InputField(key="fuel", label="Топливо", type="select", options=["природный газ", "иное"]),
-    InputField(key="site", label="Размеры участка", type="text", placeholder="напр. 200×300 м"),
+    InputField(key="product", label="Что проектируем (продукция)", type="select",
+               options=["рядовой кирпич", "облицовочный кирпич", "клинкерный кирпич",
+                        "поризованный кирпич/камень"]),
+    InputField(key="capacity", label="Целевой объём производства", type="text",
+               placeholder="напр. 30000 шт/смену или 60 млн шт/год"),
+    InputField(key="fuel", label="Топливо (если известно)", type="select",
+               options=["природный газ", "иное", "не определено"]),
+    InputField(key="site", label="Участок (если известно)", type="text",
+               placeholder="размеры/ограничения площадки, необязательно"),
 ]
 
 
@@ -573,10 +568,14 @@ async def inputs_schema(project_id: str, payload: InputsSchemaRequest):
             from graph.graph import _llm
             from langchain_core.messages import SystemMessage, HumanMessage
             system = (
-                "Ты — Главный конструктор. Перечисли исходные данные (поля формы), которые "
-                "НЕОБХОДИМО запросить у пользователя для проектирования по заданию. Для каждого "
-                "поля: key (латиницей), label (рус.), type (text/number/select), unit (если есть), "
-                "options (для select). 6–12 полей. Ответь СТРОГО JSON."
+                "Ты — Главный конструктор. Система проектирует завод АВТОМАТИЧЕСКИ и сама "
+                "выводит параметры (хим. состав сырья — из отчётов лаборатории; нормы ввода "
+                "добавок, режимы сушки/обжига, подбор оборудования, энергопотребление, площади "
+                "и т.д. — рассчитывает). Перечисли ТОЛЬКО те исходные данные, без которых "
+                "НЕВОЗМОЖНО понять цель и тип результата (обычно 2–4 поля: вид продукции, "
+                "объём производства, опц. топливо/участок). НЕ включай то, что можно посчитать "
+                "или взять из отчёта лаборатории. Для каждого поля: key (лат.), label (рус.), "
+                "type (text/number/select), unit, options. Ответь СТРОГО JSON."
             )
             llm = _llm(streaming=False).with_structured_output(_FieldsLLM)
             res: _FieldsLLM = await llm.ainvoke(
@@ -676,6 +675,15 @@ async def upload_project_materials(project_id: str, file: UploadFile = File(...)
     except ValueError as e:
         raise HTTPException(status_code=422, detail=str(e))
     return UploadResponse(ok=True, chunks_added=chunks, agent="(проект)", filename=file.filename or "")
+
+
+@app.delete("/api/projects/{project_id}")
+async def delete_project(project_id: str):
+    """Удалить проект со всей историей, памятью и материалами."""
+    if not await storage.delete_project(project_id):
+        raise HTTPException(status_code=404, detail="Проект не найден")
+    delete_project_collection(project_id)
+    return {"ok": True}
 
 
 @app.post("/api/projects/{project_id}/memory")
