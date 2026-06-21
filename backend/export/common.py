@@ -37,8 +37,9 @@ class ProjectExportData:
     tasks: list[str] = field(default_factory=list)          # запросы пользователя
     sections: list[AgentSection] = field(default_factory=list)  # ответы по агентам
     raw_text: str = ""                                       # весь текст ответов (для извлечения)
-    calc_summary: str = ""                                   # детерминированные расчёты
+    calc_summary: str = ""                                   # детерминированные расчёты (текст)
     equipment: list[dict] = field(default_factory=list)      # подобранное оборудование
+    spec: dict = field(default_factory=dict)                 # структурная спецификация (единый источник)
 
     @property
     def industry_name(self) -> str:
@@ -87,22 +88,22 @@ async def collect_project_content(project_id: str) -> ProjectExportData:
     ]
     raw_text = "\n\n".join(s.content for s in sections)
 
-    # Детерминированные расчёты по исходным данным проекта (если заданы)
+    # Единый источник истины: структурная спецификация (build_spec) по исходным
+    # данным проекта. Из неё же берём ведомость оборудования и текстовую сводку —
+    # чтобы числа в документах совпадали со спецификацией на экране.
     calc_summary = ""
     equipment: list[dict] = []
+    spec: dict = {}
     try:
         inputs = await storage.get_project_inputs(project_id)
         if inputs:
-            from calc import (build_summary, parse_capacity, production_program,
-                              select_equipment, EquipmentInput)
+            from calc import build_spec, build_summary
+            spec = build_spec(inputs)
             calc_summary = build_summary(inputs)
-            prod_in = parse_capacity(str(inputs.get("capacity", "")))
-            if prod_in:
-                prog = production_program(prod_in)
-                eq = select_equipment(EquipmentInput(pieces_per_hour=prog.pieces_per_hour,
-                                                     piece_mass_kg=prod_in.piece_mass_kg))
-                equipment = [{"role": it.role, "name": it.name,
-                              "capacity": it.unit_capacity, "qty": it.qty} for it in eq.items]
+            if spec.get("has_data"):
+                equipment = [{"role": it["role"], "name": it["name"],
+                              "capacity": it["unit_capacity"], "qty": it["qty"]}
+                             for it in spec.get("equipment", {}).get("items", [])]
     except Exception:
         pass
 
@@ -116,4 +117,5 @@ async def collect_project_content(project_id: str) -> ProjectExportData:
         raw_text=raw_text,
         calc_summary=calc_summary,
         equipment=equipment,
+        spec=spec,
     )
