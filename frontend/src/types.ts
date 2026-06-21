@@ -13,6 +13,15 @@ export interface Industry {
   builtin?: boolean
 }
 
+export interface InputField {
+  key: string
+  label: string
+  type: string          // text | number | select
+  unit?: string
+  options?: string[]
+  placeholder?: string
+}
+
 export interface AgentKnowledge {
   chunks: number
   sources: string[]

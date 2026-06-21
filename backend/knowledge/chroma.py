@@ -69,6 +69,27 @@ def project_search(query: str, project_id: str, n_results: int = 5) -> str:
     )
 
 
+def add_project_text(text: str, project_id: str, filename: str = "исходные данные") -> int:
+    """Добавить произвольный текст (напр. заполненную форму) в материалы проекта."""
+    chunks = _chunk_text(text)
+    if not chunks:
+        return 0
+    col = get_project_collection(project_id)
+    existing = set(col.get()["ids"])
+    ids, docs, metas = [], [], []
+    for i, chunk in enumerate(chunks):
+        doc_id = f"{filename}_{i}"
+        if doc_id in existing:
+            # перезаписываем «исходные данные» свежими значениями
+            col.delete(ids=[doc_id])
+        ids.append(doc_id)
+        docs.append(chunk)
+        metas.append({"source": filename, "chunk": i})
+    if ids:
+        col.add(ids=ids, documents=docs, metadatas=metas)
+    return len(ids)
+
+
 async def add_project_file(file_path: str, project_id: str) -> int:
     """Добавить файл в материалы проекта (txt/pdf/docx/xlsx)."""
     text = _read_file_text(Path(file_path))

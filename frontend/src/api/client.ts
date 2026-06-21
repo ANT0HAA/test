@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState, useCallback } from 'react'
-import type { Agent, AgentDetail, Industry, KnowledgeMap, Project, ProjectMessageInfo, WsEvent } from '../types'
+import type { Agent, AgentDetail, Industry, InputField, KnowledgeMap, Project, ProjectMessageInfo, WsEvent } from '../types'
 
 const API_BASE = '' // proxied via vite
 
@@ -130,6 +130,53 @@ export async function uploadProjectMaterial(
     throw new Error(err.detail || 'Ошибка загрузки')
   }
   return res.json()
+}
+
+/** Запросить набор полей формы исходных данных (Конструктор предлагает по брифу). */
+export async function fetchInputsSchema(projectId: string, brief: string): Promise<InputField[]> {
+  const res = await fetch(`${API_BASE}/api/projects/${projectId}/inputs-schema`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ brief }),
+  })
+  if (!res.ok) throw new Error('Не удалось получить форму данных')
+  const data = await res.json()
+  return data.fields ?? []
+}
+
+/** Сохранить заполненные исходные данные в проект (приоритет над базой знаний). */
+export async function submitProjectInputs(
+  projectId: string,
+  values: Record<string, string>
+): Promise<{ ok: boolean; saved: number }> {
+  const res = await fetch(`${API_BASE}/api/projects/${projectId}/inputs`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ values }),
+  })
+  if (!res.ok) throw new Error('Не удалось сохранить данные')
+  return res.json()
+}
+
+/** Скачать полный пакет проекта (ZIP с документами и чертежом). */
+export async function downloadProjectPackage(projectId: string): Promise<void> {
+  const res = await fetch(`${API_BASE}/api/projects/${projectId}/package`)
+  if (!res.ok) {
+    const err = await res.json().catch(() => ({ detail: 'Ошибка формирования пакета' }))
+    throw new Error(err.detail || 'Ошибка формирования пакета')
+  }
+  const cd = res.headers.get('Content-Disposition') ?? ''
+  const match = /filename\*=UTF-8''([^;]+)/.exec(cd)
+  const filename = match ? decodeURIComponent(match[1]) : 'project_package.zip'
+  const blob = await res.blob()
+  const url = URL.createObjectURL(blob)
+  const a = document.createElement('a')
+  a.href = url
+  a.download = filename
+  document.body.appendChild(a)
+  a.click()
+  a.remove()
+  URL.revokeObjectURL(url)
 }
 
 export async function clearSession(sessionId: string): Promise<void> {

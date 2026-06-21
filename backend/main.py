@@ -29,12 +29,15 @@ from agents.definitions import (
     load_customizations, _BUILTIN_INDUSTRIES,
 )
 from graph.graph import get_graph, reset_graph, BureauState, GRAPH_RECURSION_LIMIT
-from knowledge.chroma import add_file, add_project_file, list_collections, collection_stats
+from knowledge.chroma import (
+    add_file, add_project_file, add_project_text, list_collections, collection_stats,
+)
 from models.schemas import (
     UploadResponse, AgentInfo, HealthResponse,
     ProjectCreate, ProjectInfo, ProjectDetail, ProjectMessageInfo, MemoryNoteCreate,
     ExportRequest, KompasGenerateRequest, KompasDesignRequest, BuildingSpec,
     IndustryCreate, AgentUpsert,
+    InputField, InputsSchemaRequest, InputsSchemaResponse, ProjectInputsSubmit,
 )
 from pydantic import BaseModel
 from storage import db as storage
@@ -525,6 +528,133 @@ async def get_project(project_id: str):
             for r in rows
         ],
     )
+
+
+# Курируемый набор исходных данных кирпичного завода (надёжный откат)
+_DEFAULT_INPUT_FIELDS = [
+    InputField(key="product_type", label="Тип кирпича", type="select",
+               options=["рядовой", "облицовочный", "клинкерный", "поризованный"]),
+    InputField(key="format", label="Формат изделия", type="text", placeholder="1НФ 250×120×65 мм"),
+    InputField(key="strength", label="Марка прочности", type="select",
+               options=["М100", "М125", "М150", "М175", "М200", "М250", "М300"]),
+    InputField(key="frost", label="Морозостойкость", type="select",
+               options=["F25", "F35", "F50", "F75", "F100"]),
+    InputField(key="capacity", label="Производительность", type="number", unit="шт/смену"),
+    InputField(key="shifts", label="Смен в сутки", type="number"),
+    InputField(key="hours", label="Часов в смене", type="number", placeholder="8"),
+    InputField(key="forming", label="Способ формования", type="select",
+               options=["пластическое (вакуум-пресс)", "полусухое прессование"]),
+    InputField(key="clay", label="Тип глины / сырьё", type="text",
+               placeholder="из отчёта лаборатории"),
+    InputField(key="moisture", label="Карьерная влажность сырья", type="number", unit="%"),
+    InputField(key="fuel", label="Топливо", type="select", options=["природный газ", "иное"]),
+    InputField(key="site", label="Размеры участка", type="text", placeholder="напр. 200×300 м"),
+]
+
+
+class _FieldLLM(BaseModel):
+    key: str
+    label: str
+    type: str = "text"
+    unit: str = ""
+    options: list[str] = []
+
+
+class _FieldsLLM(BaseModel):
+    fields: list[_FieldLLM] = []
+
+
+@app.post("/api/projects/{project_id}/inputs-schema", response_model=InputsSchemaResponse)
+async def inputs_schema(project_id: str, payload: InputsSchemaRequest):
+    """Какие исходные данные запросить у пользователя (поля формы).
+    Оркестратор предлагает поля по брифу; при сбое — курируемый набор."""
+    if payload.brief.strip():
+        try:
+            from graph.graph import _llm
+            from langchain_core.messages import SystemMessage, HumanMessage
+            system = (
+                "Ты — Главный конструктор. Перечисли исходные данные (поля формы), которые "
+                "НЕОБХОДИМО запросить у пользователя для проектирования по заданию. Для каждого "
+                "поля: key (латиницей), label (рус.), type (text/number/select), unit (если есть), "
+                "options (для select). 6–12 полей. Ответь СТРОГО JSON."
+            )
+            llm = _llm(streaming=False).with_structured_output(_FieldsLLM)
+            res: _FieldsLLM = await llm.ainvoke(
+                [SystemMessage(content=system), HumanMessage(content=payload.brief)]
+            )
+            fields = [
+                InputField(key=f.key.strip(), label=f.label.strip(),
+                           type=f.type if f.type in ("text", "number", "select") else "text",
+                           unit=f.unit, options=f.options)
+                for f in res.fields if f.key and f.label
+            ][:12]
+            if fields:
+                return InputsSchemaResponse(fields=fields)
+        except Exception:
+            log.info("Схема полей через LLM не получена — курируемый набор", exc_info=True)
+    return InputsSchemaResponse(fields=_DEFAULT_INPUT_FIELDS)
+
+
+@app.post("/api/projects/{project_id}/inputs")
+async def submit_inputs(project_id: str, payload: ProjectInputsSubmit):
+    """Сохранить заполненные исходные данные как материалы проекта (приоритет над БЗ)."""
+    if not await storage.get_project(project_id):
+        raise HTTPException(status_code=404, detail="Проект не найден")
+    lines = [f"- {k}: {v}" for k, v in payload.values.items() if str(v).strip()]
+    if not lines:
+        return {"ok": True, "saved": 0}
+    text = "ИСХОДНЫЕ ДАННЫЕ ПРОЕКТА (заданы пользователем):\n" + "\n".join(lines)
+    chunks = add_project_text(text, project_id, filename="исходные данные")
+    return {"ok": True, "saved": len(lines), "chunks": chunks}
+
+
+@app.get("/api/projects/{project_id}/package")
+async def project_package(project_id: str):
+    """Полный пакет проекта одним архивом: записка (DOCX), ведомость (XLSX),
+    сводный отчёт (PDF), генплан (.cdw, если доступен коннектор) и манифест."""
+    import io
+    import zipfile
+    project = await storage.get_project(project_id)
+    if not project:
+        raise HTTPException(status_code=404, detail="Проект не найден")
+
+    buf = io.BytesIO()
+    included: list[str] = []
+    with zipfile.ZipFile(buf, "w", zipfile.ZIP_DEFLATED) as z:
+        for doc_type in ("docx", "xlsx", "pdf"):
+            try:
+                content, _, fname = await build_document(project_id, doc_type)
+                z.writestr(f"documents/{fname}", content)
+                included.append(fname)
+            except Exception:
+                log.exception("Пакет: не удалось собрать %s", doc_type)
+
+        # Генплан завода через коннектор Компас (если запущен) — best-effort
+        try:
+            import httpx
+            buildings = await _design_buildings(project.name)
+            gen = {"kind": "site_plan", "title": f"Генплан — {project.name}",
+                   "project": project.id[:8], "designer": "AI Конструкторское бюро",
+                   "buildings": [b.model_dump() for b in buildings]}
+            url = settings.kompas_connector_url.rstrip("/")
+            async with httpx.AsyncClient(timeout=180.0) as client:
+                r = await client.post(f"{url}/generate", json=gen)
+            if r.status_code < 400 and r.content[:2] == b"PK":
+                z.writestr("drawings/Генплан.cdw", r.content)
+                included.append("Генплан.cdw")
+        except Exception:
+            log.info("Пакет: чертёж пропущен (коннектор Компас недоступен)")
+
+        manifest = (
+            f"ПАКЕТ ПРОЕКТА\nПроект: {project.name}\nОтрасль: {project.industry}\n"
+            f"Дата: {project.created_at:%d.%m.%Y}\nСформировано: AI Конструкторское бюро\n\n"
+            "Состав пакета:\n" + "\n".join(f"  • {n}" for n in included)
+        )
+        z.writestr("manifest.txt", manifest.encode("utf-8"))
+
+    quoted = quote(f"{project.name}_пакет.zip")
+    headers = {"Content-Disposition": f"attachment; filename*=UTF-8''{quoted}"}
+    return Response(content=buf.getvalue(), media_type="application/zip", headers=headers)
 
 
 @app.post("/api/projects/{project_id}/materials", response_model=UploadResponse)

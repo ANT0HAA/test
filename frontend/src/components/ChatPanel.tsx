@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from 'react'
-import { Send, Upload, Trash2, CircleDot, FileDown, Plus, Loader2 } from 'lucide-react'
+import { Send, Upload, Trash2, CircleDot, FileDown, Plus, Loader2, ClipboardList } from 'lucide-react'
 import type { Agent, ChatMessage } from '../types'
 import type { ExportDocType } from '../api/client'
 
@@ -17,7 +17,9 @@ interface Props {
   onOpenUpload: () => void
   onClear: () => void
   onExport: (docType: ExportDocType) => void
+  onDownloadPackage: () => void                  // полный пакет проекта (ZIP)
   onAddProjectFiles: (files: FileList) => void   // загрузка файлов в проект (кнопка «+»)
+  onOpenInputs: (brief: string) => void          // форма исходных данных
   projectUploading?: boolean
 }
 
@@ -29,7 +31,8 @@ const EXPORT_OPTIONS: { type: ExportDocType; label: string }[] = [
 
 export default function ChatPanel({
   agents, selectedAgent, messages, input, connected, busy, modelLabel, exporting,
-  onInputChange, onSend, onOpenUpload, onClear, onExport, onAddProjectFiles, projectUploading,
+  onInputChange, onSend, onOpenUpload, onClear, onExport, onDownloadPackage,
+  onAddProjectFiles, onOpenInputs, projectUploading,
 }: Props) {
   const scrollRef = useRef<HTMLDivElement>(null)
   const projectFileRef = useRef<HTMLInputElement>(null)
@@ -107,6 +110,16 @@ export default function ChatPanel({
                       {opt.label}
                     </button>
                   ))}
+                  <div className="my-1 border-t border-ink-600" />
+                  <button
+                    onClick={() => {
+                      setExportOpen(false)
+                      onDownloadPackage()
+                    }}
+                    className="w-full text-left px-4 py-2 text-[13px] text-clay-200 hover:bg-ink-600 transition-colors"
+                  >
+                    Полный пакет проекта (ZIP)
+                  </button>
                 </div>
               </>
             )}
@@ -159,6 +172,13 @@ export default function ChatPanel({
             className="shrink-0 w-11 h-11 rounded-xl border border-ink-500 bg-ink-900 hover:bg-ink-600 text-muted hover:text-gray-200 disabled:opacity-40 flex items-center justify-center transition-colors"
           >
             {projectUploading ? <Loader2 size={18} className="animate-spin" /> : <Plus size={18} />}
+          </button>
+          <button
+            onClick={() => onOpenInputs(input)}
+            title="Заполнить исходные данные проекта (форма)"
+            className="shrink-0 w-11 h-11 rounded-xl border border-ink-500 bg-ink-900 hover:bg-ink-600 text-muted hover:text-gray-200 flex items-center justify-center transition-colors"
+          >
+            <ClipboardList size={18} />
           </button>
           <textarea
             value={input}

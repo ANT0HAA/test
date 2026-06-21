@@ -124,6 +124,29 @@ class KompasDesignRequest(BaseModel):
     title: str = "Генплан кирпичного завода"
 
 
+# ─── Форма исходных данных проекта (окошко с полями) ──────────────────
+
+class InputField(BaseModel):
+    key: str
+    label: str
+    type: str = "text"          # text | number | select
+    unit: str = ""
+    options: list[str] = []
+    placeholder: str = ""
+
+
+class InputsSchemaRequest(BaseModel):
+    brief: str = ""
+
+
+class InputsSchemaResponse(BaseModel):
+    fields: list[InputField] = []
+
+
+class ProjectInputsSubmit(BaseModel):
+    values: dict[str, str] = {}
+
+
 # ─── Управление агентами и отраслями (admin UI) ───────────────────────
 
 class IndustryCreate(BaseModel):

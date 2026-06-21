@@ -4,12 +4,14 @@ import ChatPanel from './components/ChatPanel'
 import UploadModal from './components/UploadModal'
 import ProjectBar from './components/ProjectBar'
 import AdminModal from './components/AdminModal'
+import InputsFormModal from './components/InputsFormModal'
 import {
   fetchAgents, useChatSocket, clearSession, fetchLlmStatus, type LlmStatus,
   fetchProjects, createProject, fetchProjectDetail, fetchIndustries, fetchKnowledge,
-  exportDocument, uploadProjectMaterial, type ExportDocType,
+  exportDocument, uploadProjectMaterial, downloadProjectPackage,
+  fetchInputsSchema, submitProjectInputs, type ExportDocType,
 } from './api/client'
-import type { Agent, ChatMessage, Industry, KnowledgeMap, Project } from './types'
+import type { Agent, ChatMessage, Industry, InputField, KnowledgeMap, Project } from './types'
 
 const DEFAULT_INDUSTRY = 'ceramics'
 
@@ -28,6 +30,7 @@ export default function App() {
   const [showAdmin, setShowAdmin] = useState(false)
   const [knowledge, setKnowledge] = useState<KnowledgeMap>({})
   const [projectUploading, setProjectUploading] = useState(false)
+  const [inputsFields, setInputsFields] = useState<InputField[] | null>(null)
 
   // Ref to the id of the currently-streaming assistant message
   const streamingId = useRef<string | null>(null)
@@ -223,6 +226,38 @@ export default function App() {
     }
   }
 
+  const handleOpenInputs = async (brief: string) => {
+    if (!activeProjectId) return
+    try {
+      const fields = await fetchInputsSchema(activeProjectId, brief.trim())
+      setInputsFields(fields)
+    } catch (e) {
+      handleError(e instanceof Error ? e.message : 'Не удалось получить форму данных')
+    }
+  }
+
+  const handleSubmitInputs = async (values: Record<string, string>) => {
+    if (!activeProjectId) return
+    const res = await submitProjectInputs(activeProjectId, values)
+    setMessages((prev) => [...prev, {
+      id: crypto.randomUUID(), role: 'assistant', agent: 'orchestrator', agentName: 'Система',
+      content: `Исходные данные сохранены в проект (${res.saved} полей). Агенты учитывают их с приоритетом.`,
+      streaming: false,
+    }])
+  }
+
+  const handleDownloadPackage = async () => {
+    if (!activeProjectId || exporting) return
+    setExporting(true)
+    try {
+      await downloadProjectPackage(activeProjectId)
+    } catch (e) {
+      handleError(e instanceof Error ? e.message : 'Ошибка формирования пакета')
+    } finally {
+      setExporting(false)
+    }
+  }
+
   const handleExport = async (docType: ExportDocType) => {
     if (!activeProjectId || exporting) return
     setExporting(true)
@@ -275,7 +310,9 @@ export default function App() {
           onOpenUpload={() => setShowUpload(true)}
           onClear={handleClear}
           onExport={handleExport}
+          onDownloadPackage={handleDownloadPackage}
           onAddProjectFiles={handleAddProjectFiles}
+          onOpenInputs={handleOpenInputs}
           projectUploading={projectUploading}
         />
       </div>
@@ -287,6 +324,13 @@ export default function App() {
           knowledge={knowledge}
           onUploaded={refreshKnowledge}
           onClose={() => setShowUpload(false)}
+        />
+      )}
+      {inputsFields && (
+        <InputsFormModal
+          fields={inputsFields}
+          onClose={() => setInputsFields(null)}
+          onSubmit={handleSubmitInputs}
         />
       )}
       {showAdmin && (
