@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState, useCallback } from 'react'
-import type { Agent, AgentDetail, Industry, InputField, KnowledgeMap, Project, ProjectMessageInfo, WsEvent } from '../types'
+import type { Agent, AgentDetail, Industry, InputField, KnowledgeMap, Project, ProjectMessageInfo, ProjectSpec, WsEvent } from '../types'
 
 const API_BASE = '' // proxied via vite
 
@@ -160,6 +160,13 @@ export async function submitProjectInputs(
     body: JSON.stringify({ values }),
   })
   if (!res.ok) throw new Error('Не удалось сохранить данные')
+  return res.json()
+}
+
+/** Структурированная спецификация проекта (расчётное ядро по исходным данным). */
+export async function fetchProjectSpec(projectId: string): Promise<ProjectSpec> {
+  const res = await fetch(`${API_BASE}/api/projects/${projectId}/spec`)
+  if (!res.ok) throw new Error('Не удалось загрузить спецификацию проекта')
   return res.json()
 }
 

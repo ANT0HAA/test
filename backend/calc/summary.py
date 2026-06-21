@@ -10,7 +10,7 @@ import re
 from .production import ProductionInput, production_program
 from .equipment import EquipmentInput, select_equipment
 from .electrical import ElectricalInput, electrical_load
-from .areas import AreasInput, estimate_areas
+from .areas import AreasInput, estimate_areas, buildings_from_areas
 from .estimate import EstimateInput, cost_estimate
 
 # Ориентировочная масса 1 шт по виду продукции, кг
@@ -89,3 +89,62 @@ def build_summary(values: dict) -> str:
                  f"{est.total_per_year_rub:,.0f} руб/год.")
 
     return "\n".join(lines).replace(",", " ")  # пробел как разделитель тысяч
+
+
+def build_spec(values: dict) -> dict:
+    """
+    Структурированная спецификация проекта (единый источник истины).
+
+    Те же детерминированные расчёты, что и в build_summary, но в виде словаря —
+    для отображения/редактирования в UI и сборки документов. Если объём выпуска
+    не задан, возвращает {"has_data": False, "inputs": ...}.
+    """
+    capacity_text = values.get("capacity") or values.get("pieces_per_year") or ""
+    prod_in = parse_capacity(str(capacity_text))
+    if not prod_in:
+        return {"has_data": False, "inputs": dict(values)}
+
+    prod_in.piece_mass_kg = _piece_mass(values.get("product", ""))
+    prog = production_program(prod_in)
+    eq = select_equipment(EquipmentInput(pieces_per_hour=prog.pieces_per_hour,
+                                         piece_mass_kg=prod_in.piece_mass_kg))
+    el = electrical_load(ElectricalInput(
+        annual_kwh=prog.resources_per_year["electricity_kwh"],
+        operating_hours=prog.operating_hours_per_year))
+    ar = estimate_areas(AreasInput(pieces_per_year=prog.pieces_per_year))
+    est = cost_estimate(EstimateInput(resources_per_year=prog.resources_per_year,
+                                      pieces_per_year=prog.pieces_per_year))
+
+    return {
+        "has_data": True,
+        "inputs": dict(values),
+        "production": {
+            "pieces_per_year": round(prog.pieces_per_year),
+            "pieces_per_hour": round(prog.pieces_per_hour),
+            "mass_per_year_t": round(prog.mass_per_year_t),
+            "piece_mass_kg": prod_in.piece_mass_kg,
+        },
+        "resources": {k: round(v, 1) for k, v in prog.resources_per_year.items()},
+        "equipment": {
+            "throughput_tph": round(eq.raw_throughput_tph, 1),
+            "items": [
+                {"role": it.role, "name": it.name,
+                 "unit_capacity": it.unit_capacity, "qty": it.qty}
+                for it in eq.items
+            ],
+        },
+        "electrical": {
+            "installed_power_kw": round(el.installed_power_kw),
+            "transformer_kva": el.transformer_kva,
+            "category": el.category,
+        },
+        "areas": {
+            "total_m2": round(ar.total_m2),
+            "items": {k: round(v) for k, v in ar.areas_m2.items()},
+        },
+        "buildings": buildings_from_areas(prog.pieces_per_year),
+        "cost": {
+            "cost_per_1000_rub": round(est.cost_per_1000_rub, 1),
+            "total_per_year_rub": round(est.total_per_year_rub),
+        },
+    }

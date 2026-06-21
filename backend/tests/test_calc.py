@@ -8,6 +8,7 @@ from calc import (
     ElectricalInput, electrical_load, AreasInput, estimate_areas, buildings_from_areas,
     EstimateInput, cost_estimate,
     Component, ShihtaInput, shihta_calc,
+    build_spec,
 )
 
 
@@ -109,6 +110,22 @@ def test_shihta_normalizes():
     ]))
     assert abs(r.composition["SiO2"] - 68.0) < 0.01   # 40*50/100 + 60*80/100
     assert r.normalized_fractions["A"] == 40.0
+
+
+def test_build_spec_structured():
+    spec = build_spec({"product": "облицовочный кирпич", "capacity": "30000 шт/смену"})
+    assert spec["has_data"] is True
+    assert spec["production"]["pieces_per_year"] == 15_000_000
+    assert spec["cost"]["cost_per_1000_rub"] > 0
+    assert spec["electrical"]["transformer_kva"] >= 250
+    assert any(b["name"] == "Обжигательный корпус" for b in spec["buildings"])
+    assert spec["areas"]["total_m2"] > 0
+
+
+def test_build_spec_no_capacity():
+    spec = build_spec({"product": "кирпич"})
+    assert spec["has_data"] is False
+    assert spec["inputs"]["product"] == "кирпич"
 
 
 def test_build_summary_uses_inputs():

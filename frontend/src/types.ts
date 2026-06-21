@@ -63,6 +63,36 @@ export interface ChatMessage {
   streaming?: boolean
 }
 
+export interface ProjectSpec {
+  has_data: boolean
+  inputs: Record<string, string>
+  production?: {
+    pieces_per_year: number
+    pieces_per_hour: number
+    mass_per_year_t: number
+    piece_mass_kg: number
+  }
+  resources?: Record<string, number>
+  equipment?: {
+    throughput_tph: number
+    items: { role: string; name: string; unit_capacity: number; qty: number }[]
+  }
+  electrical?: {
+    installed_power_kw: number
+    transformer_kva: number
+    category: string
+  }
+  areas?: {
+    total_m2: number
+    items: Record<string, number>
+  }
+  buildings?: { name: string; width_m: number; length_m: number }[]
+  cost?: {
+    cost_per_1000_rub: number
+    total_per_year_rub: number
+  }
+}
+
 export type WsEvent =
   | { type: 'agent_start'; agent: string; display_name: string }
   | { type: 'token'; content: string; agent: string }

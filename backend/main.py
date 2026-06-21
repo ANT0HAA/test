@@ -725,6 +725,23 @@ async def submit_inputs(project_id: str, payload: ProjectInputsSubmit):
     return {"ok": True, "saved": len(clean), "chunks": chunks}
 
 
+@app.get("/api/projects/{project_id}/spec")
+async def project_spec(project_id: str):
+    """
+    Структурированная спецификация проекта — единый источник истины.
+
+    Собирает из исходных данных проекта детерминированную спецификацию
+    (производственная программа, ресурсы, оборудование, электроснабжение,
+    площади, состав корпусов, себестоимость) через расчётное ядро. Если объём
+    выпуска не задан, возвращает has_data=False с уже введёнными данными.
+    """
+    from calc import build_spec
+    if not await storage.get_project(project_id):
+        raise HTTPException(status_code=404, detail="Проект не найден")
+    inputs = await storage.get_project_inputs(project_id) or {}
+    return build_spec(inputs)
+
+
 @app.get("/api/projects/{project_id}/package")
 async def project_package(project_id: str):
     """Полный пакет проекта одним архивом: записка (DOCX), ведомость (XLSX),

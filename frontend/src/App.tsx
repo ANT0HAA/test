@@ -5,6 +5,7 @@ import UploadModal from './components/UploadModal'
 import ProjectBar from './components/ProjectBar'
 import AdminModal from './components/AdminModal'
 import InputsFormModal from './components/InputsFormModal'
+import SpecModal from './components/SpecModal'
 import {
   fetchAgents, useChatSocket, clearSession, fetchLlmStatus, type LlmStatus,
   fetchProjects, createProject, deleteProject, fetchProjectDetail, fetchIndustries, fetchKnowledge,
@@ -31,6 +32,7 @@ export default function App() {
   const [knowledge, setKnowledge] = useState<KnowledgeMap>({})
   const [projectUploading, setProjectUploading] = useState(false)
   const [inputsFields, setInputsFields] = useState<InputField[] | null>(null)
+  const [showSpec, setShowSpec] = useState(false)
 
   // Ref to the id of the currently-streaming assistant message
   const streamingId = useRef<string | null>(null)
@@ -345,6 +347,7 @@ export default function App() {
           onExport={handleExport}
           onDownloadPackage={handleDownloadPackage}
           onDownloadSitePlan={handleDownloadSitePlan}
+          onOpenSpec={() => setShowSpec(true)}
           onAddProjectFiles={handleAddProjectFiles}
           onOpenInputs={handleOpenInputs}
           projectUploading={projectUploading}
@@ -365,6 +368,14 @@ export default function App() {
           fields={inputsFields}
           onClose={() => setInputsFields(null)}
           onSubmit={handleSubmitInputs}
+        />
+      )}
+      {showSpec && activeProjectId && (
+        <SpecModal
+          projectId={activeProjectId}
+          projectName={activeProject?.name ?? 'проект'}
+          onClose={() => setShowSpec(false)}
+          onEditInputs={() => handleOpenInputs(input)}
         />
       )}
       {showAdmin && (

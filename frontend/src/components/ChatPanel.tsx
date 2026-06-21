@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from 'react'
-import { Send, Upload, Trash2, CircleDot, FileDown, Plus, Loader2, ClipboardList } from 'lucide-react'
+import { Send, Upload, Trash2, CircleDot, FileDown, Plus, Loader2, ClipboardList, FileText } from 'lucide-react'
 import type { Agent, ChatMessage } from '../types'
 import type { ExportDocType } from '../api/client'
 
@@ -19,6 +19,7 @@ interface Props {
   onExport: (docType: ExportDocType) => void
   onDownloadPackage: () => void                  // полный пакет проекта (ZIP)
   onDownloadSitePlan: () => void                 // генплан (Компас, по площадям)
+  onOpenSpec: () => void                         // спецификация проекта (расчётное ядро)
   onAddProjectFiles: (files: FileList) => void   // загрузка файлов в проект (кнопка «+»)
   onOpenInputs: (brief: string) => void          // форма исходных данных
   projectUploading?: boolean
@@ -33,7 +34,7 @@ const EXPORT_OPTIONS: { type: ExportDocType; label: string }[] = [
 export default function ChatPanel({
   agents, selectedAgent, messages, input, connected, busy, modelLabel, exporting,
   onInputChange, onSend, onOpenUpload, onClear, onExport, onDownloadPackage,
-  onDownloadSitePlan, onAddProjectFiles, onOpenInputs, projectUploading,
+  onDownloadSitePlan, onOpenSpec, onAddProjectFiles, onOpenInputs, projectUploading,
 }: Props) {
   const scrollRef = useRef<HTMLDivElement>(null)
   const projectFileRef = useRef<HTMLInputElement>(null)
@@ -83,6 +84,13 @@ export default function ChatPanel({
             />
             {modelLabel ?? (connected ? 'онлайн' : 'оффлайн')}
           </span>
+          <button
+            onClick={onOpenSpec}
+            className="p-2 rounded-lg hover:bg-ink-600 text-muted hover:text-gray-200 transition-colors"
+            title="Спецификация проекта"
+          >
+            <FileText size={16} />
+          </button>
           <div className="relative">
             <button
               onClick={() => setExportOpen((v) => !v)}
