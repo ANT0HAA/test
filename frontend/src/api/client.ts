@@ -212,18 +212,25 @@ export interface LabClay { name: string; plasticity: number; fraction?: number }
 export interface LabRequest {
   clays: LabClay[]
   forming: string
-  target_plasticity: number
+  target_plasticity: number | null
   sensitivity_coeff?: number | null
   annual_clay_t?: number
   raw_tph?: number
   max_feeders: number
 }
 
-/** Лабораторно-технологический расчёт по сырью. */
+/** Лабораторно-технологический расчёт по сырью (ручной ввод глин). */
 export async function calcLab(req: LabRequest): Promise<any> {
   return jsonOrThrow(await authedFetch(`${API_BASE}/api/calc/lab`, {
     method: 'POST', headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify(req),
+  }))
+}
+
+/** Лабораторный расчёт по проекту: глины и свойства — из отчёта, параметры — авто. */
+export async function fetchProjectLab(projectId: string): Promise<any> {
+  return jsonOrThrow(await authedFetch(`${API_BASE}/api/projects/${projectId}/lab`, {
+    method: 'POST',
   }))
 }
 

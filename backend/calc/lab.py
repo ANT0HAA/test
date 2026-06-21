@@ -34,6 +34,24 @@ def plasticity_number(wl: float, wp: float) -> float:
     return round(wl - wp, 1)
 
 
+# Целевое число пластичности массы по способу формования (типовые окна
+# формуемости; уточняются по данным заказчика). Система считает цель сама.
+_TARGET_IP_BY_FORMING = {
+    "пластическое": 12.0,   # оптимум ~10–14 для шнекового пресса
+    "полусухое": 7.0,       # пластичность менее критична
+    "сухое": 5.0,
+}
+
+
+def recommended_target_plasticity(forming: str) -> float:
+    """Целевое число пластичности массы под способ формования (рассчитывается системой)."""
+    key = (forming or "").strip().lower()
+    for k, v in _TARGET_IP_BY_FORMING.items():
+        if k in key:
+            return v
+    return _TARGET_IP_BY_FORMING["пластическое"]
+
+
 # ─── Чувствительность к сушке ──────────────────────────────────────────
 
 def sensitivity_group(coeff: float) -> str:
@@ -237,7 +255,7 @@ def forming_guidance(method: str = "пластическое") -> dict:
 class LabInput(BaseModel):
     clays: list[ClaySource]
     forming: str = "пластическое"
-    target_plasticity: float = 12.0
+    target_plasticity: float | None = None   # None → система считает по способу формования
     sand_plasticity: float = 0.0
     sensitivity_coeff: float | None = None    # коэффициент чувствительности к сушке (из лаборатории)
     annual_clay_t: float = 0.0                # годовой расход глины (из производственной программы)
@@ -254,8 +272,11 @@ def lab_report(inp: LabInput) -> dict:
     if not inp.clays:
         return {"has_data": False, "notes": ["Не заданы глины (компоненты шихты)."]}
 
+    # Цель система считает сама по способу формования, если не задана явно
+    target_ip = (inp.target_plasticity if inp.target_plasticity is not None
+                 else recommended_target_plasticity(inp.forming))
     blended_ip, blended_oxides = average_blend(inp.clays)
-    leaning = recommend_leaning(inp.clays, inp.target_plasticity, inp.sand_plasticity)
+    leaning = recommend_leaning(inp.clays, target_ip, inp.sand_plasticity)
     forming = forming_guidance(inp.forming)
     feeders = select_feeder(inp.raw_tph or 1.0, components=len(inp.clays) + 1,
                             max_feeders=inp.max_feeders, averaging=True)

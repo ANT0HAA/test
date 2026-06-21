@@ -3,10 +3,32 @@
 Проверяют формулы и пороги стандартных методик (без внешних данных/сервисов).
 """
 from calc import (
-    plasticity_number, plasticity_group, sensitivity_group, ClaySource,
+    plasticity_number, plasticity_group, recommended_target_plasticity,
+    sensitivity_group, ClaySource,
     average_blend, recommend_leaning, clay_yard, select_feeder, forming_guidance,
     LabInput, lab_report,
 )
+
+
+def test_target_plasticity_auto_by_forming():
+    assert recommended_target_plasticity("пластическое") == 12.0
+    assert recommended_target_plasticity("полусухое") == 7.0
+    assert recommended_target_plasticity("неизвестно") == 12.0  # дефолт
+
+
+def test_lab_report_auto_target_when_none():
+    # target_plasticity не задан → система берёт по способу формования (12 для пластического)
+    inp = LabInput(clays=[ClaySource(name="A", plasticity=20)], forming="пластическое")
+    r = lab_report(inp)
+    assert r["leaning"]["target_plasticity"] == 12.0
+
+
+def test_lab_report_single_clay():
+    # число глин не фиксировано — допустима одна глина
+    r = lab_report(LabInput(clays=[ClaySource(name="Единственная", plasticity=10)]))
+    assert r["has_data"] is True
+    assert r["blend"]["clays"] == 1
+    assert r["leaning"]["need_leaning"] is False  # 10 ≤ 12
 
 
 def test_plasticity_number_and_group():

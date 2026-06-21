@@ -736,6 +736,87 @@ async def analyze_lab(project_id: str, _=Depends(project_access)):
         return {"found": True, "components": [], "summary": "", "error": str(e)[:120]}
 
 
+class _ClayLLM(BaseModel):
+    name: str
+    plasticity: float | None = None       # число пластичности, %
+    oxides: dict[str, float] = {}
+
+
+class _ClaysLLM(BaseModel):
+    clays: list[_ClayLLM] = []
+    sensitivity_coeff: float | None = None  # коэффициент чувствительности к сушке (если есть)
+
+
+async def _clays_from_report(project_id: str) -> tuple[list, float | None]:
+    """Извлечь из отчёта лаборатории список глин (с пластичностью) и чувствительность.
+    Число глин — любое (сколько в отчёте). Пусто, если отчёта/LLM нет."""
+    from knowledge.chroma import project_search
+    from calc import ClaySource
+    text = project_search(
+        "число пластичности глина суглинок чувствительность к сушке усадка оксиды", project_id)
+    if not text:
+        return [], None
+    from graph.graph import _llm
+    from langchain_core.messages import SystemMessage, HumanMessage
+    system = (
+        "Ты — технолог. Из отчёта лаборатории извлеки ВСЕ глинистые компоненты сырья "
+        "(сколько есть — 1, 2, 3…). Для каждого: name, число пластичности plasticity (%), "
+        "oxides (если есть). Также общий коэффициент чувствительности к сушке "
+        "sensitivity_coeff, если приведён. Верни СТРОГО JSON."
+    )
+    llm = _llm(streaming=False).with_structured_output(_ClaysLLM)
+    res: _ClaysLLM = await llm.ainvoke(
+        [SystemMessage(content=system), HumanMessage(content=text[:6000])])
+    clays = [
+        ClaySource(name=c.name, plasticity=c.plasticity if c.plasticity is not None else 15.0,
+                   oxides=c.oxides or {})
+        for c in res.clays if c.name
+    ]
+    return clays, res.sensitivity_coeff
+
+
+@app.post("/api/projects/{project_id}/lab")
+async def project_lab(project_id: str, _=Depends(project_access)):
+    """
+    Лабораторный расчёт по проекту: глины и их свойства берутся ИЗ ОТЧЁТА (любое
+    число), целевая пластичность и нагрузки — считаются системой (по способу
+    формования и производственной программе). Если отчёт/LLM недоступны —
+    has_data=False (тогда можно задать глины вручную в окне «Лаборатория»).
+    """
+    from calc import build_spec, lab_report, LabInput
+    inputs = await storage.get_project_inputs(project_id) or {}
+    spec = build_spec(inputs)
+
+    annual_clay = 0.0
+    raw_tph = 0.0
+    if spec.get("has_data"):
+        res = spec.get("resources", {})
+        annual_clay = (res.get("clay_main_t", 0) or 0) + (res.get("clay_kaolin_t", 0) or 0)
+        raw_tph = spec.get("equipment", {}).get("throughput_tph", 0) or 0
+    forming = inputs.get("forming") or "пластическое"
+
+    try:
+        clays, sensitivity = await _clays_from_report(project_id)
+    except Exception:
+        log.info("Извлечение глин из отчёта не удалось", exc_info=True)
+        clays, sensitivity = [], None
+
+    if not clays:
+        return {"has_data": False,
+                "reason": "Не удалось извлечь глины из отчёта лаборатории "
+                          "(приложите отчёт и включите Ollama, либо задайте глины вручную).",
+                "annual_clay_t": round(annual_clay, 1), "raw_tph": raw_tph, "forming": forming}
+
+    report = lab_report(LabInput(clays=clays, forming=forming, sensitivity_coeff=sensitivity,
+                                 annual_clay_t=annual_clay, raw_tph=raw_tph))
+    report["source"] = "отчёт лаборатории"
+    report["clays_used"] = [{"name": c.name, "plasticity": c.plasticity} for c in clays]
+    report["annual_clay_t"] = round(annual_clay, 1)
+    report["raw_tph"] = raw_tph
+    report["forming"] = forming
+    return report
+
+
 # ─── REST: health ─────────────────────────────────────────────────────
 
 @app.get("/api/health", response_model=HealthResponse)

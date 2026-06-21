@@ -459,8 +459,9 @@ export default function App() {
           onClose={() => setShowMaterials(false)}
         />
       )}
-      {showLab && (
+      {showLab && activeProjectId && (
         <LabModal
+          projectId={activeProjectId}
           projectName={activeProject?.name ?? 'проект'}
           onClose={() => setShowLab(false)}
         />

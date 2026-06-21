@@ -1,41 +1,58 @@
 import { useState } from 'react'
-import { X, FlaskConical, Plus, Trash2, Loader2, Calculator } from 'lucide-react'
-import { calcLab, type LabClay } from '../api/client'
+import { X, FlaskConical, Plus, Trash2, Loader2, Calculator, FileSearch } from 'lucide-react'
+import { calcLab, fetchProjectLab, type LabClay } from '../api/client'
 
 interface Props {
+  projectId: string
   projectName: string
   onClose: () => void
-  prefill?: { annual_clay_t?: number; raw_tph?: number }
 }
 
 const FORMING = ['пластическое', 'полусухое', 'сухое']
 
-export default function LabModal({ projectName, onClose, prefill }: Props) {
-  const [clays, setClays] = useState<LabClay[]>([
-    { name: 'Глина-1', plasticity: 28 },
-    { name: 'Глина-2', plasticity: 22 },
-    { name: 'Глина-3', plasticity: 18 },
-  ])
+export default function LabModal({ projectId, projectName, onClose }: Props) {
+  const [clays, setClays] = useState<LabClay[]>([])
   const [forming, setForming] = useState('пластическое')
-  const [targetIp, setTargetIp] = useState(12)
   const [sensitivity, setSensitivity] = useState('')
-  const [annualClay, setAnnualClay] = useState(prefill?.annual_clay_t ? String(Math.round(prefill.annual_clay_t)) : '')
-  const [rawTph, setRawTph] = useState(prefill?.raw_tph ? String(prefill.raw_tph) : '')
+  const [annualClay, setAnnualClay] = useState('')
+  const [rawTph, setRawTph] = useState('')
   const [result, setResult] = useState<any>(null)
   const [busy, setBusy] = useState(false)
+  const [fromReportBusy, setFromReportBusy] = useState(false)
   const [error, setError] = useState<string | null>(null)
+  const [info, setInfo] = useState<string | null>(null)
 
   const setClay = (i: number, patch: Partial<LabClay>) =>
     setClays((p) => p.map((c, j) => (j === i ? { ...c, ...patch } : c)))
   const addClay = () => setClays((p) => [...p, { name: `Глина-${p.length + 1}`, plasticity: 15 }])
   const delClay = (i: number) => setClays((p) => p.filter((_, j) => j !== i))
 
+  // Глины и параметры — из отчёта лаборатории (число глин любое; цель считает система)
+  const loadFromReport = async () => {
+    setFromReportBusy(true); setError(null); setInfo(null)
+    try {
+      const r = await fetchProjectLab(projectId)
+      if (r.annual_clay_t) setAnnualClay(String(Math.round(r.annual_clay_t)))
+      if (r.raw_tph) setRawTph(String(r.raw_tph))
+      if (r.forming) setForming(r.forming)
+      if (r.has_data) {
+        if (r.clays_used?.length) setClays(r.clays_used.map((c: any) => ({ name: c.name, plasticity: c.plasticity })))
+        setResult(r)
+        setInfo('Глины и свойства взяты из отчёта лаборатории. Цель и нагрузки рассчитаны системой.')
+      } else {
+        setResult(null)
+        setInfo(r.reason || 'Не удалось извлечь данные из отчёта — задайте глины вручную.')
+      }
+    } catch (e) { setError(e instanceof Error ? e.message : 'Ошибка') }
+    finally { setFromReportBusy(false) }
+  }
+
   const run = async () => {
     setBusy(true); setError(null)
     try {
       const r = await calcLab({
         clays: clays.filter((c) => c.name.trim()),
-        forming, target_plasticity: targetIp,
+        forming, target_plasticity: null,   // null → система считает по способу формования
         sensitivity_coeff: sensitivity ? Number(sensitivity) : null,
         annual_clay_t: annualClay ? Number(annualClay) : 0,
         raw_tph: rawTph ? Number(rawTph) : 0,
@@ -58,11 +75,18 @@ export default function LabModal({ projectName, onClose, prefill }: Props) {
         </div>
 
         <div className="px-5 py-2 text-[11px] text-faint">
-          Расчёт по сырью: усреднение шихты, отощитель/режим сушки, питатели, штабель,
-          схема формования. Первичные данные — из отчёта; здесь можно скорректировать и пересчитать.
+          Глины и их свойства берутся ИЗ ОТЧЁТА лаборатории (число глин любое), цель и
+          нагрузки рассчитывает система. Можно скорректировать вручную и пересчитать.
         </div>
 
         <div className="flex-1 overflow-y-auto px-5 py-3 space-y-4">
+          <button onClick={loadFromReport} disabled={fromReportBusy}
+            className="w-full px-4 py-2 text-sm border border-clay-500/50 bg-clay-600/10 hover:bg-clay-600/20 disabled:opacity-40 text-clay-200 rounded-lg flex items-center justify-center gap-2">
+            {fromReportBusy ? <Loader2 size={14} className="animate-spin" /> : <FileSearch size={14} />}
+            Взять глины из отчёта лаборатории
+          </button>
+          {info && <div className="text-[12px] text-amber-200/80 bg-ink-900 border border-ink-600 rounded-lg px-3 py-2">{info}</div>}
+
           {/* Глины */}
           <div>
             <div className="flex items-center justify-between mb-1.5">
@@ -71,6 +95,11 @@ export default function LabModal({ projectName, onClose, prefill }: Props) {
                 <Plus size={13} /> добавить
               </button>
             </div>
+            {clays.length === 0 && (
+              <div className="text-[12px] text-faint px-3 py-2 bg-ink-900 border border-ink-600 rounded-lg">
+                Нет глин. Нажмите «Взять из отчёта лаборатории» или добавьте вручную.
+              </div>
+            )}
             <div className="space-y-1.5">
               {clays.map((c, i) => (
                 <div key={i} className="flex items-center gap-2">
@@ -97,10 +126,11 @@ export default function LabModal({ projectName, onClose, prefill }: Props) {
               </select>
             </Field>
             <Field label="Целевая пластичность Ip">
-              <input type="number" value={targetIp} onChange={(e) => setTargetIp(Number(e.target.value))}
-                className="w-full bg-ink-900 border border-ink-500 rounded-lg px-3 py-2 text-[13px] text-gray-200" />
+              <div className="px-3 py-2 text-[13px] text-faint border border-ink-600 rounded-lg bg-ink-900">
+                рассчитывается системой по способу формования
+              </div>
             </Field>
-            <Field label="Коэф. чувствительности к сушке (если есть)">
+            <Field label="Коэф. чувствительности к сушке (из отчёта)">
               <input type="number" step="0.1" value={sensitivity} placeholder="напр. 1.8"
                 onChange={(e) => setSensitivity(e.target.value)}
                 className="w-full bg-ink-900 border border-ink-500 rounded-lg px-3 py-2 text-[13px] text-gray-200 placeholder:text-faint" />
