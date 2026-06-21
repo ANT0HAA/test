@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'react'
-import { X, Loader2, FileText } from 'lucide-react'
-import { fetchProjectSpec } from '../api/client'
-import type { ProjectSpec } from '../types'
+import { X, Loader2, FileText, FlaskConical } from 'lucide-react'
+import { fetchProjectSpec, analyzeLab } from '../api/client'
+import type { LabAnalysis, ProjectSpec } from '../types'
 
 interface Props {
   projectId: string
@@ -28,12 +28,25 @@ const fmt = (n: number) => n.toLocaleString('ru-RU')
 export default function SpecModal({ projectId, projectName, onClose, onEditInputs }: Props) {
   const [spec, setSpec] = useState<ProjectSpec | null>(null)
   const [error, setError] = useState<string | null>(null)
+  const [lab, setLab] = useState<LabAnalysis | null>(null)
+  const [labBusy, setLabBusy] = useState(false)
 
   useEffect(() => {
     fetchProjectSpec(projectId)
       .then(setSpec)
       .catch((e) => setError(e instanceof Error ? e.message : 'Ошибка загрузки'))
   }, [projectId])
+
+  const runLab = async () => {
+    setLabBusy(true)
+    try {
+      setLab(await analyzeLab(projectId))
+    } catch (e) {
+      setLab({ found: false, detail: e instanceof Error ? e.message : 'Ошибка разбора' })
+    } finally {
+      setLabBusy(false)
+    }
+  }
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 p-4">
@@ -67,6 +80,81 @@ export default function SpecModal({ projectId, projectName, onClose, onEditInput
               >
                 Заполнить исходные данные
               </button>
+            </div>
+          )}
+
+          {spec && (
+            <div>
+              <div className="flex items-center justify-between mb-1.5">
+                <div className="text-[11px] font-mono uppercase tracking-wide text-clay-300">
+                  Химсостав сырья (из отчёта лаборатории)
+                </div>
+                <button
+                  onClick={runLab}
+                  disabled={labBusy}
+                  className="flex items-center gap-1.5 px-2.5 py-1 text-[11px] rounded-md border border-ink-500 bg-ink-900 hover:bg-ink-600 text-muted hover:text-gray-200 disabled:opacity-40"
+                >
+                  {labBusy ? <Loader2 size={12} className="animate-spin" /> : <FlaskConical size={12} />}
+                  {lab ? 'Разобрать заново' : 'Разобрать отчёт'}
+                </button>
+              </div>
+
+              {!lab && (
+                <div className="text-[11px] text-faint bg-ink-900 border border-ink-600 rounded-lg px-3 py-2">
+                  Приложите отчёт лаборатории к проекту (кнопка «+») и нажмите «Разобрать отчёт» —
+                  технолог извлечёт компоненты и рассчитает оксидный состав массы.
+                </div>
+              )}
+
+              {lab && !lab.found && (
+                <div className="text-[11px] text-amber-200/80 bg-ink-900 border border-ink-600 rounded-lg px-3 py-2">
+                  {lab.detail ?? 'Отчёт лаборатории не найден в материалах проекта.'}
+                </div>
+              )}
+
+              {lab?.found && (
+                <div className="space-y-2">
+                  {lab.summary && (
+                    <div className="text-[12px] text-gray-300 bg-ink-900 border border-ink-600 rounded-lg px-3 py-2">
+                      {lab.summary}
+                    </div>
+                  )}
+                  {lab.components && lab.components.length > 0 && (
+                    <div className="bg-ink-900 border border-ink-600 rounded-lg divide-y divide-ink-700">
+                      {lab.components.map((c, i) => (
+                        <div key={i} className="px-3 py-1.5">
+                          <div className="flex items-center justify-between gap-4">
+                            <span className="text-muted">{c.name}</span>
+                            {c.fraction != null && (
+                              <span className="text-gray-100 font-mono">{c.fraction}%</span>
+                            )}
+                          </div>
+                          {c.oxides && Object.keys(c.oxides).length > 0 && (
+                            <div className="text-[11px] text-faint font-mono mt-0.5">
+                              {Object.entries(c.oxides).map(([k, v]) => `${k} ${v}`).join(' · ')}
+                            </div>
+                          )}
+                        </div>
+                      ))}
+                    </div>
+                  )}
+                  {lab.shihta?.composition && Object.keys(lab.shihta.composition).length > 0 && (
+                    <div>
+                      <div className="text-[11px] text-muted mb-1">Оксидный состав массы (расчёт):</div>
+                      <div className="bg-ink-900 border border-ink-600 rounded-lg divide-y divide-ink-700">
+                        {Object.entries(lab.shihta.composition).map(([k, v]) => (
+                          <Row key={k} k={k} v={`${v} %`} />
+                        ))}
+                      </div>
+                    </div>
+                  )}
+                  {lab.components && lab.components.length === 0 && (
+                    <div className="text-[11px] text-faint">
+                      Не удалось извлечь компоненты{lab.error ? `: ${lab.error}` : ''}.
+                    </div>
+                  )}
+                </div>
+              )}
             </div>
           )}
 

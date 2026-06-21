@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState, useCallback } from 'react'
-import type { Agent, AgentDetail, Industry, InputField, KnowledgeMap, Project, ProjectMessageInfo, ProjectSpec, WsEvent } from '../types'
+import type { Agent, AgentDetail, Industry, InputField, KnowledgeMap, LabAnalysis, Project, ProjectMessageInfo, ProjectSpec, WsEvent } from '../types'
 
 const API_BASE = '' // proxied via vite
 
@@ -167,6 +167,13 @@ export async function submitProjectInputs(
 export async function fetchProjectSpec(projectId: string): Promise<ProjectSpec> {
   const res = await fetch(`${API_BASE}/api/projects/${projectId}/spec`)
   if (!res.ok) throw new Error('Не удалось загрузить спецификацию проекта')
+  return res.json()
+}
+
+/** Разобрать приложенный отчёт лаборатории: компоненты + оксидный состав массы. */
+export async function analyzeLab(projectId: string): Promise<LabAnalysis> {
+  const res = await fetch(`${API_BASE}/api/projects/${projectId}/analyze-lab`, { method: 'POST' })
+  if (!res.ok) throw new Error('Не удалось разобрать отчёт лаборатории')
   return res.json()
 }
 

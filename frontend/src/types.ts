@@ -93,6 +93,25 @@ export interface ProjectSpec {
   }
 }
 
+export interface LabComponent {
+  name: string
+  fraction?: number
+  oxides?: Record<string, number>
+}
+
+export interface LabAnalysis {
+  found: boolean
+  detail?: string
+  components?: LabComponent[]
+  summary?: string
+  error?: string
+  shihta?: {
+    composition: Record<string, number>
+    normalized_fractions: Record<string, number>
+    notes?: string[]
+  } | null
+}
+
 export type WsEvent =
   | { type: 'agent_start'; agent: string; display_name: string }
   | { type: 'token'; content: string; agent: string }
