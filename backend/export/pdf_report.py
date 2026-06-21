@@ -96,14 +96,25 @@ async def build_summary_report(data: ProjectExportData) -> bytes:
     else:
         flow.append(Paragraph("Задание не зафиксировано.", body))
 
+    if data.calc_summary:
+        flow.append(Spacer(1, 5 * mm))
+        flow.append(Paragraph("2. Расчётные данные", h1))
+        flow.append(Spacer(1, 3 * mm))
+        for para in data.calc_summary.split("\n"):
+            para = para.rstrip()
+            if para:
+                flow.append(Paragraph(_escape(para), body))
+                flow.append(Spacer(1, 1 * mm))
+
+    section_no = 3 if data.calc_summary else 2
     flow.append(Spacer(1, 5 * mm))
-    flow.append(Paragraph("2. Проектные решения", h1))
+    flow.append(Paragraph(f"{section_no}. Проектные решения", h1))
     flow.append(Spacer(1, 3 * mm))
     if not data.sections:
         flow.append(Paragraph("По проекту пока нет проработанных решений специалистов.", body))
     for idx, section in enumerate(data.sections, 1):
         flow.append(Spacer(1, 3 * mm))
-        flow.append(Paragraph(f"2.{idx}. {_escape(section.display_name)}", h2))
+        flow.append(Paragraph(f"{section_no}.{idx}. {_escape(section.display_name)}", h2))
         flow.append(Spacer(1, 1.5 * mm))
         for para in (section.content or "—").split("\n"):
             para = para.strip()

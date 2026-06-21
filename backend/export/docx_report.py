@@ -78,12 +78,21 @@ async def build_explanatory_note(data: ProjectExportData) -> bytes:
     else:
         doc.add_paragraph("Задание не зафиксировано.")
 
+    # ── Расчётные данные ──
+    if data.calc_summary:
+        doc.add_heading("2. Расчётные данные", level=1)
+        for para in data.calc_summary.split("\n"):
+            para = para.rstrip()
+            if para:
+                doc.add_paragraph(para)
+
     # ── Разделы по специалистам ──
-    doc.add_heading("2. Проектные решения", level=1)
+    section_no = 3 if data.calc_summary else 2
+    doc.add_heading(f"{section_no}. Проектные решения", level=1)
     if not data.sections:
         doc.add_paragraph("По проекту пока нет проработанных решений специалистов.")
     for idx, section in enumerate(data.sections, 1):
-        doc.add_heading(f"2.{idx}. {section.display_name}", level=2)
+        doc.add_heading(f"{section_no}.{idx}. {section.display_name}", level=2)
         for para in (section.content or "—").split("\n"):
             para = para.strip()
             if para:

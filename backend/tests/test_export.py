@@ -24,6 +24,9 @@ def _data():
                          "Туннельная печь — 1 шт.\nВагонетки — 45 шт."),
         ],
         raw_text="Туннельная печь — 1 шт.\nВагонетки — 45 шт.\nДымосос ДН-12 — 2 ед.",
+        calc_summary="Производственная программа:\n  • выпуск: 15 000 000 шт/год",
+        equipment=[{"role": "Формование", "name": "Пресс СМК-133", "capacity": "20 т/ч", "qty": 1},
+                   {"role": "Обжиг", "name": "Туннельная печь", "capacity": "L≈80 м", "qty": 1}],
     )
 
 
@@ -34,7 +37,17 @@ async def test_docx_valid_and_structured():
     text = "\n".join(p.text for p in doc.paragraphs)
     assert "ПОЯСНИТЕЛЬНАЯ ЗАПИСКА" in text
     assert "Конструктор" in text
+    assert "Расчётные данные" in text          # раздел из расчётов
+    assert "15 000 000" in text                # цифра из расчётов
     assert len(doc.tables) >= 1  # штамп
+
+
+async def test_xlsx_equipment_from_calc():
+    content = await build_equipment_sheet(_data())
+    from openpyxl import load_workbook
+    ws = load_workbook(io.BytesIO(content)).active
+    cells = [ws.cell(row=r, column=2).value for r in range(5, 12)]
+    assert any(c and "СМК-133" in str(c) for c in cells)   # подобранное оборудование
 
 
 async def test_xlsx_columns_and_rows():

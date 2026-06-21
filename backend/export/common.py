@@ -37,6 +37,8 @@ class ProjectExportData:
     tasks: list[str] = field(default_factory=list)          # запросы пользователя
     sections: list[AgentSection] = field(default_factory=list)  # ответы по агентам
     raw_text: str = ""                                       # весь текст ответов (для извлечения)
+    calc_summary: str = ""                                   # детерминированные расчёты
+    equipment: list[dict] = field(default_factory=list)      # подобранное оборудование
 
     @property
     def industry_name(self) -> str:
@@ -85,6 +87,25 @@ async def collect_project_content(project_id: str) -> ProjectExportData:
     ]
     raw_text = "\n\n".join(s.content for s in sections)
 
+    # Детерминированные расчёты по исходным данным проекта (если заданы)
+    calc_summary = ""
+    equipment: list[dict] = []
+    try:
+        inputs = await storage.get_project_inputs(project_id)
+        if inputs:
+            from calc import (build_summary, parse_capacity, production_program,
+                              select_equipment, EquipmentInput)
+            calc_summary = build_summary(inputs)
+            prod_in = parse_capacity(str(inputs.get("capacity", "")))
+            if prod_in:
+                prog = production_program(prod_in)
+                eq = select_equipment(EquipmentInput(pieces_per_hour=prog.pieces_per_hour,
+                                                     piece_mass_kg=prod_in.piece_mass_kg))
+                equipment = [{"role": it.role, "name": it.name,
+                              "capacity": it.unit_capacity, "qty": it.qty} for it in eq.items]
+    except Exception:
+        pass
+
     return ProjectExportData(
         project_id=project.id,
         name=project.name,
@@ -93,4 +114,6 @@ async def collect_project_content(project_id: str) -> ProjectExportData:
         tasks=tasks,
         sections=sections,
         raw_text=raw_text,
+        calc_summary=calc_summary,
+        equipment=equipment,
     )

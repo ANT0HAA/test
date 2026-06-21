@@ -97,9 +97,15 @@ def _extract_heuristic(data: ProjectExportData) -> list[EquipmentRow]:
 
 async def build_equipment_sheet(data: ProjectExportData) -> bytes:
     """Сформировать ведомость оборудования и вернуть XLSX как bytes."""
-    items = await _extract_via_llm(data)
-    if not items:
-        items = _extract_heuristic(data)
+    # Приоритет — детерминированно подобранное оборудование (из расчётного ядра).
+    if data.equipment:
+        items = [EquipmentRow(name=e["name"], mark=e.get("role", ""),
+                              qty=str(e.get("qty", "")), unit="шт",
+                              note=e.get("capacity", "")) for e in data.equipment]
+    else:
+        items = await _extract_via_llm(data)
+        if not items:
+            items = _extract_heuristic(data)
 
     wb = Workbook()
     ws = wb.active
