@@ -5,6 +5,7 @@ import UploadModal from './components/UploadModal'
 import ProjectBar from './components/ProjectBar'
 import AdminModal from './components/AdminModal'
 import InputsFormModal from './components/InputsFormModal'
+import ClarifyModal from './components/ClarifyModal'
 import SpecModal from './components/SpecModal'
 import {
   fetchAgents, useChatSocket, clearSession, fetchLlmStatus, type LlmStatus,
@@ -33,6 +34,7 @@ export default function App() {
   const [projectUploading, setProjectUploading] = useState(false)
   const [inputsFields, setInputsFields] = useState<InputField[] | null>(null)
   const [showSpec, setShowSpec] = useState(false)
+  const [clarify, setClarify] = useState<{ message: string; agent: string; fields: InputField[] } | null>(null)
 
   // Ref to the id of the currently-streaming assistant message
   const streamingId = useRef<string | null>(null)
@@ -181,13 +183,31 @@ export default function App() {
     setBusy(false)
   }, [])
 
+  const handleClarify = useCallback((message: string, agent: string, fields: InputField[]) => {
+    // Бюро запросило недостающие данные — показываем форму, стрим пока не идёт
+    streamingId.current = null
+    setBusy(false)
+    setClarify({ message, agent, fields })
+  }, [])
+
   const { send, connected } = useChatSocket({
     sessionId: activeProjectId,
     onAgentStart: handleAgentStart,
     onToken: handleToken,
     onDone: handleDone,
     onError: handleError,
+    onClarify: handleClarify,
   })
+
+  // Дозаполнить данные и повторить исходный запрос (минуя повторное уточнение)
+  const resumeAfterClarify = (saved: boolean) => {
+    if (!clarify) return
+    const { message, agent } = clarify
+    setClarify(null)
+    setBusy(true)
+    void saved
+    send(message, agent, true)
+  }
 
   // ─── Actions ─────────────────────────────────────────────────────
 
@@ -368,6 +388,17 @@ export default function App() {
           fields={inputsFields}
           onClose={() => setInputsFields(null)}
           onSubmit={handleSubmitInputs}
+        />
+      )}
+      {clarify && (
+        <ClarifyModal
+          fields={clarify.fields}
+          onClose={() => setClarify(null)}
+          onProceed={() => resumeAfterClarify(false)}
+          onSubmit={async (values) => {
+            if (activeProjectId) await submitProjectInputs(activeProjectId, values)
+            resumeAfterClarify(true)
+          }}
         />
       )}
       {showSpec && activeProjectId && (

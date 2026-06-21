@@ -274,6 +274,7 @@ interface UseChatSocketArgs {
   onToken: (content: string, agent: string) => void
   onDone: (agent: string) => void
   onError: (message: string) => void
+  onClarify: (message: string, agent: string, fields: InputField[]) => void
 }
 
 export function useChatSocket({
@@ -282,13 +283,14 @@ export function useChatSocket({
   onToken,
   onDone,
   onError,
+  onClarify,
 }: UseChatSocketArgs) {
   const wsRef = useRef<WebSocket | null>(null)
   const [connected, setConnected] = useState(false)
 
   // Keep latest callbacks without reconnecting
-  const cbRef = useRef({ onAgentStart, onToken, onDone, onError })
-  cbRef.current = { onAgentStart, onToken, onDone, onError }
+  const cbRef = useRef({ onAgentStart, onToken, onDone, onError, onClarify })
+  cbRef.current = { onAgentStart, onToken, onDone, onError, onClarify }
 
   useEffect(() => {
     if (!sessionId) {
@@ -319,16 +321,19 @@ export function useChatSocket({
         case 'error':
           cbRef.current.onError(data.message)
           break
+        case 'clarify':
+          cbRef.current.onClarify(data.message, data.agent, data.fields)
+          break
       }
     }
 
     return () => ws.close()
   }, [sessionId])
 
-  const send = useCallback((message: string, agent: string) => {
+  const send = useCallback((message: string, agent: string, skipClarify = false) => {
     const ws = wsRef.current
     if (ws && ws.readyState === WebSocket.OPEN) {
-      ws.send(JSON.stringify({ message, agent, session_id: sessionId }))
+      ws.send(JSON.stringify({ message, agent, session_id: sessionId, skip_clarify: skipClarify }))
     }
   }, [sessionId])
 

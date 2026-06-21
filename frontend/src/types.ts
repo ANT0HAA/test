@@ -117,3 +117,4 @@ export type WsEvent =
   | { type: 'token'; content: string; agent: string }
   | { type: 'done'; agent: string }
   | { type: 'error'; message: string }
+  | { type: 'clarify'; message: string; agent: string; fields: InputField[] }

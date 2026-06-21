@@ -116,6 +116,23 @@ MAX_HISTORY = 40  # максимум сообщений из истории пр
 # Команда сохранения решения в память проекта: «запомни: <текст>»
 _REMEMBER_RE = re.compile(r"^запомни\s*[:\-]\s*(.+)", re.IGNORECASE | re.DOTALL)
 
+# Запрос на проектирование — по нему бюро может уточнить недостающие исходные данные.
+_DESIGN_TRIGGER_RE = re.compile(
+    r"спроектир|запроектир|рассчита|посчита|разработа|построй|сделай\s+проект|"
+    r"генплан|завод|производств|цех|кирпич|керам|линию|подбери\s+оборуд",
+    re.IGNORECASE,
+)
+
+# Минимально необходимые исходные данные, без которых проектирование бессмысленно.
+_REQUIRED_INPUT_KEYS = ("product", "capacity")
+
+
+def _missing_required_fields(inputs: dict | None) -> list[InputField]:
+    """Какие из обязательных исходных данных ещё не заданы (поля для формы уточнения)."""
+    have = {k for k, v in (inputs or {}).items() if str(v).strip()}
+    by_key = {f.key: f for f in _DEFAULT_INPUT_FIELDS}
+    return [by_key[k] for k in _REQUIRED_INPUT_KEYS if k not in have and k in by_key]
+
 
 @app.on_event("startup")
 async def on_startup() -> None:
@@ -193,6 +210,21 @@ async def websocket_chat(websocket: WebSocket, project_id: str):
                     "type": "done", "agent": memory_agent,
                 }, ensure_ascii=False))
                 continue
+
+            # Уточняющая форма: если это запрос на проектирование, а обязательных
+            # исходных данных не хватает — бюро запрашивает их окошком и ждёт ответа
+            # (клиент дозаполнит и пришлёт сообщение повторно с skip_clarify=true).
+            if not data.get("skip_clarify") and _DESIGN_TRIGGER_RE.search(user_message):
+                inputs = await storage.get_project_inputs(project_id)
+                missing = _missing_required_fields(inputs)
+                if missing:
+                    await websocket.send_text(json.dumps({
+                        "type": "clarify",
+                        "message": user_message,
+                        "agent": selected_agent,
+                        "fields": [f.model_dump() for f in missing],
+                    }, ensure_ascii=False))
+                    continue
 
             history = await storage.get_history(project_id, limit=MAX_HISTORY)
 
