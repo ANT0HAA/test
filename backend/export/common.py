@@ -65,6 +65,19 @@ def firing_lines(spec: dict) -> list[str]:
     return lines
 
 
+def energy_lines(spec: dict) -> list[str]:
+    """Текстовые строки энергобаланса печь→сушило для документов."""
+    e = (spec or {}).get("energy")
+    if not e:
+        return []
+    return [
+        f"Потребность сушила: {e['dryer_demand_kcal_per_h']:,.0f} ккал/ч.".replace(",", " "),
+        f"Рекуперация тепла печи: {e['kiln_recoverable_kcal_per_h']:,.0f} ккал/ч "
+        f"(покрытие {e['coverage_pct']:g}% потребности сушила).".replace(",", " "),
+        f"Догрев сушила топливом: {e['net_dryer_gas_m3_per_h']:g} м³/ч природного газа.",
+    ]
+
+
 def balance_lines(spec: dict) -> list[str]:
     """Текстовые строки материального баланса по переделам для документов."""
     bal = (spec or {}).get("balance")

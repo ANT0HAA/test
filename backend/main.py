@@ -56,7 +56,7 @@ from calc import (
     EstimateInput, EstimateResult, cost_estimate,
     ShihtaInput, ShihtaResult, shihta_calc,
     buildings_from_areas, parse_capacity, production_program,
-    LabInput, BalanceInput, FiringInput,
+    LabInput, BalanceInput, FiringInput, EnergyInput,
 )
 
 logging.basicConfig(level=logging.INFO)
@@ -712,6 +712,16 @@ async def calc_firing(payload: FiringInput):
     from calc import firing_calc
     try:
         return firing_calc(payload)
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+
+
+@app.post("/api/calc/energy")
+async def calc_energy(payload: EnergyInput):
+    """Энергобаланс печь→сушило: рекуперация тепла и остаточный расход топлива."""
+    from calc import energy_balance
+    try:
+        return energy_balance(payload)
     except ValueError as e:
         raise HTTPException(status_code=400, detail=str(e))
 

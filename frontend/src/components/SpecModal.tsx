@@ -230,6 +230,14 @@ export default function SpecModal({ projectId, projectName, onClose, onEditInput
                 </Section>
               )}
 
+              {spec.energy && (
+                <Section title="Энергобаланс печь → сушило (рекуперация)">
+                  <Row k="Потребность сушила" v={`${fmt(spec.energy.dryer_demand_kcal_per_h)} ккал/ч`} />
+                  <Row k="Рекуперация из печи" v={`${fmt(spec.energy.kiln_recoverable_kcal_per_h)} ккал/ч (покрытие ${spec.energy.coverage_pct}%)`} />
+                  <Row k="Догрев сушила топливом" v={`${fmt(spec.energy.net_dryer_gas_m3_per_h)} м³/ч газа`} />
+                </Section>
+              )}
+
               {spec.balance && (
                 <Section title="Материальный баланс по переделам">
                   {spec.balance.stages.map((s, i) => (

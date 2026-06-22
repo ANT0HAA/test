@@ -11,7 +11,8 @@ from docx.enum.table import WD_TABLE_ALIGNMENT
 from docx.enum.text import WD_ALIGN_PARAGRAPH
 from docx.shared import Pt
 
-from .common import ProjectExportData, ORG_NAME, ORG_SUBTITLE, lab_lines, balance_lines, firing_lines
+from .common import (ProjectExportData, ORG_NAME, ORG_SUBTITLE,
+                     lab_lines, balance_lines, firing_lines, energy_lines)
 
 
 def _add_stamp(doc: Document, data: ProjectExportData) -> None:
@@ -94,6 +95,14 @@ async def build_explanatory_note(data: ProjectExportData) -> bytes:
         no += 1
         doc.add_heading(f"{no}. Режим обжига", level=1)
         for line in fir_block:
+            doc.add_paragraph(line)
+
+    # ── Энергобаланс печь → сушило ──
+    en_block = energy_lines(data.spec)
+    if en_block:
+        no += 1
+        doc.add_heading(f"{no}. Энергобаланс (рекуперация)", level=1)
+        for line in en_block:
             doc.add_paragraph(line)
 
     # ── Материальный баланс по переделам ──

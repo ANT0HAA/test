@@ -121,6 +121,11 @@ def build_spec(values: dict) -> dict:
     from .firing import FiringInput, firing_calc
     fir = firing_calc(FiringInput(pieces_per_hour=prog.pieces_per_hour,
                                   piece_mass_kg=prod_in.piece_mass_kg))
+    from .energy import EnergyInput, energy_balance
+    _hours = prog.operating_hours_per_year or 7920.0
+    water_kg_h = bal.water_removed_drying_t * 1000.0 / _hours
+    en = energy_balance(EnergyInput(water_removed_kg_per_h=water_kg_h,
+                                    kiln_heat_kcal_per_h=fir.heat_per_hour_kcal))
 
     return {
         "has_data": True,
@@ -174,5 +179,11 @@ def build_spec(values: dict) -> dict:
             "gas_m3_per_1000": fir.gas_m3_per_1000,
             "zones": [{"name": z.name, "temp_range_c": z.temp_range_c,
                        "share_pct": z.share_pct, "time_h": z.time_h} for z in fir.zones],
+        },
+        "energy": {
+            "dryer_demand_kcal_per_h": en.dryer_demand_kcal_per_h,
+            "kiln_recoverable_kcal_per_h": en.kiln_recoverable_kcal_per_h,
+            "coverage_pct": en.coverage_pct,
+            "net_dryer_gas_m3_per_h": en.net_dryer_gas_m3_per_h,
         },
     }

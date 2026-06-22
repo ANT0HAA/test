@@ -107,6 +107,12 @@ export interface ProjectSpec {
     gas_m3_per_1000: number
     zones: { name: string; temp_range_c: string; share_pct: number; time_h: number }[]
   }
+  energy?: {
+    dryer_demand_kcal_per_h: number
+    kiln_recoverable_kcal_per_h: number
+    coverage_pct: number
+    net_dryer_gas_m3_per_h: number
+  }
 }
 
 export interface LabComponent {
