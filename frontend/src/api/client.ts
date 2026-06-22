@@ -227,10 +227,25 @@ export async function calcLab(req: LabRequest): Promise<any> {
   }))
 }
 
-/** Лабораторный расчёт по проекту: глины и свойства — из отчёта, параметры — авто. */
+/** Лабораторный расчёт по проекту: сохранённые данные → отчёт → авто-параметры. */
 export async function fetchProjectLab(projectId: string): Promise<any> {
   return jsonOrThrow(await authedFetch(`${API_BASE}/api/projects/${projectId}/lab`, {
     method: 'POST',
+  }))
+}
+
+/** Получить сохранённые лабораторные данные проекта (для предзаполнения формы). */
+export async function fetchLabInputs(projectId: string): Promise<any> {
+  return jsonOrThrow(await authedFetch(`${API_BASE}/api/projects/${projectId}/lab-inputs`))
+}
+
+/** Сохранить лабораторные данные (глины/условия) в проект. */
+export async function saveLabInputs(projectId: string, body: {
+  clays: LabClay[]; forming: string; sensitivity_coeff: number | null; reserves_t: number
+}): Promise<void> {
+  await jsonOrThrow(await authedFetch(`${API_BASE}/api/projects/${projectId}/lab-inputs`, {
+    method: 'POST', headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(body),
   }))
 }
 

@@ -279,6 +279,39 @@ async def get_project_inputs(project_id: str) -> dict:
         return {}
 
 
+_LAB_AGENT = "__lab__"
+
+
+async def set_project_lab(project_id: str, data: dict) -> None:
+    """Сохранить лабораторные исходные данные проекта (глины/условия), перезаписью."""
+    import json
+    async with _SessionLocal() as session:
+        await session.execute(
+            delete(ProjectMemory).where(
+                ProjectMemory.project_id == project_id, ProjectMemory.agent == _LAB_AGENT)
+        )
+        session.add(ProjectMemory(project_id=project_id, agent=_LAB_AGENT,
+                                  key="json", value=json.dumps(data, ensure_ascii=False)))
+        await session.commit()
+
+
+async def get_project_lab(project_id: str) -> dict:
+    """Лабораторные исходные данные проекта ({} если не заданы)."""
+    import json
+    async with _SessionLocal() as session:
+        result = await session.execute(
+            select(ProjectMemory).where(
+                ProjectMemory.project_id == project_id, ProjectMemory.agent == _LAB_AGENT)
+        )
+        row = result.scalars().first()
+    if not row:
+        return {}
+    try:
+        return json.loads(row.value)
+    except Exception:
+        return {}
+
+
 async def get_memory(project_id: str, agent: str) -> list[ProjectMemory]:
     async with _SessionLocal() as session:
         result = await session.execute(

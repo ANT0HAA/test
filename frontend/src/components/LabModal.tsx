@@ -1,6 +1,6 @@
-import { useState } from 'react'
-import { X, FlaskConical, Plus, Trash2, Loader2, Calculator, FileSearch } from 'lucide-react'
-import { calcLab, fetchProjectLab, type LabClay } from '../api/client'
+import { useEffect, useState } from 'react'
+import { X, FlaskConical, Plus, Trash2, Loader2, Calculator, FileSearch, Save } from 'lucide-react'
+import { calcLab, fetchProjectLab, fetchLabInputs, saveLabInputs, type LabClay } from '../api/client'
 
 interface Props {
   projectId: string
@@ -21,6 +21,27 @@ export default function LabModal({ projectId, projectName, onClose }: Props) {
   const [fromReportBusy, setFromReportBusy] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [info, setInfo] = useState<string | null>(null)
+
+  // Предзаполнить сохранёнными в проект лабораторными данными
+  useEffect(() => {
+    fetchLabInputs(projectId).then((d) => {
+      if (d?.clays?.length) setClays(d.clays.map((c: any) => ({ name: c.name, plasticity: c.plasticity })))
+      if (d?.forming) setForming(d.forming)
+      if (d?.sensitivity_coeff) setSensitivity(String(d.sensitivity_coeff))
+    }).catch(() => { /* нет сохранённых — ок */ })
+  }, [projectId])
+
+  const save = async () => {
+    setBusy(true); setError(null); setInfo(null)
+    try {
+      await saveLabInputs(projectId, {
+        clays: clays.filter((c) => c.name.trim()), forming,
+        sensitivity_coeff: sensitivity ? Number(sensitivity) : null, reserves_t: 0,
+      })
+      setInfo('Лабораторные данные сохранены в проект — учитываются в расчёте и спецификации.')
+    } catch (e) { setError(e instanceof Error ? e.message : 'Ошибка сохранения') }
+    finally { setBusy(false) }
+  }
 
   const setClay = (i: number, patch: Partial<LabClay>) =>
     setClays((p) => p.map((c, j) => (j === i ? { ...c, ...patch } : c)))
@@ -141,10 +162,16 @@ export default function LabModal({ projectId, projectName, onClose }: Props) {
             </Field>
           </div>
 
-          <button onClick={run} disabled={busy}
-            className="px-4 py-2 text-sm bg-clay-500 hover:bg-clay-400 disabled:opacity-40 text-white rounded-lg flex items-center gap-2">
-            {busy ? <Loader2 size={14} className="animate-spin" /> : <Calculator size={14} />} Рассчитать
-          </button>
+          <div className="flex gap-2">
+            <button onClick={run} disabled={busy}
+              className="px-4 py-2 text-sm bg-clay-500 hover:bg-clay-400 disabled:opacity-40 text-white rounded-lg flex items-center gap-2">
+              {busy ? <Loader2 size={14} className="animate-spin" /> : <Calculator size={14} />} Рассчитать
+            </button>
+            <button onClick={save} disabled={busy || clays.length === 0}
+              className="px-4 py-2 text-sm border border-ink-500 hover:bg-ink-600 disabled:opacity-40 text-gray-200 rounded-lg flex items-center gap-2">
+              <Save size={14} /> Сохранить в проект
+            </button>
+          </div>
 
           {error && <div className="text-red-300 text-[13px]">{error}</div>}
 

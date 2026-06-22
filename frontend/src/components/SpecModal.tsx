@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react'
 import { X, Loader2, FileText, FlaskConical } from 'lucide-react'
-import { fetchProjectSpec, analyzeLab } from '../api/client'
+import { fetchProjectSpec, analyzeLab, fetchProjectLab, fetchLabInputs } from '../api/client'
 import type { LabAnalysis, ProjectSpec } from '../types'
 
 interface Props {
@@ -30,11 +30,23 @@ export default function SpecModal({ projectId, projectName, onClose, onEditInput
   const [error, setError] = useState<string | null>(null)
   const [lab, setLab] = useState<LabAnalysis | null>(null)
   const [labBusy, setLabBusy] = useState(false)
+  const [labReport, setLabReport] = useState<any>(null)
 
   useEffect(() => {
     fetchProjectSpec(projectId)
       .then(setSpec)
       .catch((e) => setError(e instanceof Error ? e.message : 'Ошибка загрузки'))
+    // Лаборатория в спецификации — ТОЛЬКО по сохранённым данным проекта (быстро, без LLM).
+    // Если глины не сохранены — не дёргаем /lab (там извлечение из отчёта может быть долгим).
+    fetchLabInputs(projectId)
+      .then((d) => {
+        if (d?.clays?.length) {
+          fetchProjectLab(projectId)
+            .then((r) => { if (r?.has_data) setLabReport(r) })
+            .catch(() => { /* пропускаем */ })
+        }
+      })
+      .catch(() => { /* нет сохранённых — секция не показывается */ })
   }, [projectId])
 
   const runLab = async () => {
@@ -208,6 +220,23 @@ export default function SpecModal({ projectId, projectName, onClose, onEditInput
                 </Section>
               )}
             </>
+          )}
+
+          {labReport && (
+            <Section title={`Лаборатория · сырьё и шихта${labReport.source ? ` (${labReport.source})` : ''}`}>
+              <Row k="Усреднённая шихта"
+                   v={`Ip ${labReport.blend.plasticity} — ${labReport.blend.group} (глин: ${labReport.blend.clays})`} />
+              {labReport.leaning && (
+                <Row k="Отощитель (песок)"
+                     v={labReport.leaning.need_leaning ? `≈ ${labReport.leaning.sand_fraction_pct}%` : 'не требуется'} />
+              )}
+              {labReport.feeders && (
+                <Row k="Питатели" v={`${labReport.feeders.feeders_used} × ${labReport.feeders.model}`} />
+              )}
+              {labReport.quarry && (
+                <Row k="Выработка карьера" v={`${fmt(labReport.quarry.mined_clay_t)} т/год`} />
+              )}
+            </Section>
           )}
         </div>
 

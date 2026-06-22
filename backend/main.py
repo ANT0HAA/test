@@ -788,7 +788,7 @@ async def project_lab(project_id: str, _=Depends(project_access)):
     формования и производственной программе). Если отчёт/LLM недоступны —
     has_data=False (тогда можно задать глины вручную в окне «Лаборатория»).
     """
-    from calc import build_spec, lab_report, LabInput
+    from calc import build_spec, lab_report, LabInput, ClaySource
     inputs = await storage.get_project_inputs(project_id) or {}
     spec = build_spec(inputs)
 
@@ -799,27 +799,68 @@ async def project_lab(project_id: str, _=Depends(project_access)):
         annual_clay = (res.get("clay_main_t", 0) or 0) + (res.get("clay_kaolin_t", 0) or 0)
         raw_tph = spec.get("equipment", {}).get("throughput_tph", 0) or 0
     forming = inputs.get("forming") or "пластическое"
+    sensitivity = None
+    source = ""
 
-    try:
-        clays, sensitivity = await _clays_from_report(project_id)
-    except Exception:
-        log.info("Извлечение глин из отчёта не удалось", exc_info=True)
-        clays, sensitivity = [], None
+    # 1) Приоритет — сохранённые в проект лабораторные данные (введённые/правленные вручную)
+    saved = await storage.get_project_lab(project_id)
+    clays: list = []
+    if saved.get("clays"):
+        clays = [ClaySource(name=c.get("name", ""), plasticity=float(c.get("plasticity") or 15.0),
+                            oxides=c.get("oxides") or {})
+                 for c in saved["clays"] if c.get("name")]
+        forming = saved.get("forming") or forming
+        sensitivity = saved.get("sensitivity_coeff")
+        source = "сохранено в проекте"
+
+    # 2) Иначе — извлечь из отчёта лаборатории (LLM)
+    if not clays:
+        try:
+            clays, sensitivity = await _clays_from_report(project_id)
+            source = "отчёт лаборатории"
+        except Exception:
+            log.info("Извлечение глин из отчёта не удалось", exc_info=True)
+            clays, sensitivity = [], None
 
     if not clays:
         return {"has_data": False,
-                "reason": "Не удалось извлечь глины из отчёта лаборатории "
-                          "(приложите отчёт и включите Ollama, либо задайте глины вручную).",
+                "reason": "Нет лабораторных данных. Задайте глины в окне «Лаборатория» и "
+                          "сохраните в проект, либо приложите отчёт и включите Ollama.",
                 "annual_clay_t": round(annual_clay, 1), "raw_tph": raw_tph, "forming": forming}
 
+    reserves = float(saved.get("reserves_t") or 0)
     report = lab_report(LabInput(clays=clays, forming=forming, sensitivity_coeff=sensitivity,
-                                 annual_clay_t=annual_clay, raw_tph=raw_tph))
-    report["source"] = "отчёт лаборатории"
+                                 annual_clay_t=annual_clay, raw_tph=raw_tph, reserves_t=reserves))
+    report["source"] = source
     report["clays_used"] = [{"name": c.name, "plasticity": c.plasticity} for c in clays]
     report["annual_clay_t"] = round(annual_clay, 1)
     report["raw_tph"] = raw_tph
     report["forming"] = forming
     return report
+
+
+class _LabInputsBody(BaseModel):
+    clays: list[dict] = []        # [{name, plasticity, oxides?}]
+    forming: str = "пластическое"
+    sensitivity_coeff: float | None = None
+    reserves_t: float = 0.0
+
+
+@app.get("/api/projects/{project_id}/lab-inputs")
+async def get_lab_inputs(project_id: str, _=Depends(project_access)):
+    """Сохранённые лабораторные исходные данные проекта (для предзаполнения формы)."""
+    return await storage.get_project_lab(project_id)
+
+
+@app.post("/api/projects/{project_id}/lab-inputs")
+async def save_lab_inputs(project_id: str, payload: _LabInputsBody, _=Depends(project_access)):
+    """Сохранить лабораторные данные (глины/условия) в проект — приоритет при расчёте."""
+    clays = [c for c in payload.clays if str(c.get("name", "")).strip()]
+    await storage.set_project_lab(project_id, {
+        "clays": clays, "forming": payload.forming,
+        "sensitivity_coeff": payload.sensitivity_coeff, "reserves_t": payload.reserves_t,
+    })
+    return {"ok": True, "saved": len(clays)}
 
 
 # ─── REST: health ─────────────────────────────────────────────────────
