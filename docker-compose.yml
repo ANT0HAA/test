@@ -1,5 +1,3 @@
-version: "3.9"
-
 services:
   ollama:
     image: ollama/ollama:latest
@@ -7,6 +5,10 @@ services:
       - "11434:11434"
     volumes:
       - ./data/ollama:/root/.ollama
+      # Переиспользуем уже скачанные на хост модели Ollama (не качаем заново).
+      # Поправьте путь слева под свою папку OLLAMA_MODELS, либо удалите эту строку,
+      # чтобы хранить модели в томе ./data/ollama (тогда нужен `ollama pull`).
+      - D:/ollama/models:/root/.ollama/models
     restart: unless-stopped
     # Раскомментируйте для использования GPU (нужен NVIDIA Container Toolkit):
     # deploy:
