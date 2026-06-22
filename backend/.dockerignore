@@ -1,0 +1,15 @@
+# Виртуальное окружение и кэши
+.venv/
+__pycache__/
+*.pyc
+.pytest_cache/
+
+# Локальные данные (в контейнере монтируются как volume / создаются заново)
+chroma_data/
+uploads/
+
+# Секреты и локальные настройки (в compose передаются через env_file)
+.env
+
+# Языковые данные Tesseract ставятся apt-пакетом tesseract-ocr-rus в образе
+.tessdata/

@@ -55,12 +55,18 @@ services:
     restart: unless-stopped
 
 # ── Первый запуск ──────────────────────────────────────────
+# 0) cp .env.example .env   (выставьте LLM_MODEL под VRAM, напр. qwen3:14b)
 # 1) docker compose up -d ollama postgres
-# 2) docker compose exec ollama ollama pull qwen3:235b   (или меньшую версию)
+# 2) docker compose exec ollama ollama pull qwen3:14b    (или иную версию под VRAM)
 # 3) docker compose up --build
+#    → frontend http://localhost:3000, backend http://localhost:8000
+#
+# OCR скан-PDF работает «из коробки»: Tesseract(+рус) ставится в образ backend.
+# Компас-3D НЕ контейнеризуется (Windows/COM): kompas-connector запускается
+# отдельно на Windows с Компасом, адрес — в KOMPAS_CONNECTOR_URL.
 #
 # Для разработки без Docker:
-#   Ollama:   ollama serve   и   ollama pull qwen3:235b
+#   Ollama:   ollama serve   и   ollama pull qwen3:14b
 #   Postgres: поднять локально и указать DATABASE_URL в .env
 #   Backend:  cd backend && uvicorn main:app --reload --port 8000
 #   Frontend: cd frontend && npm run dev

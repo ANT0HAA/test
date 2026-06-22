@@ -194,9 +194,9 @@ npm run dev          # откроется http://localhost:5173
 
 ## Запуск через Docker (для переноса на сервер)
 ```bash
-cp .env.example .env
+cp .env.example .env        # выставьте LLM_MODEL под VRAM (напр. qwen3:14b)
 docker compose up -d ollama postgres
-docker compose exec ollama ollama pull qwen3:235b   # или меньшую версию
+docker compose exec ollama ollama pull qwen3:14b    # или иную версию под VRAM
 docker compose up --build
 # frontend → http://localhost:3000
 # backend  → http://localhost:8000
@@ -204,6 +204,16 @@ docker compose up --build
 В compose Ollama поднимается как отдельный сервис. Для работы на GPU
 раскомментируйте блок `deploy.resources` в `docker-compose.yml`
 (нужен NVIDIA Container Toolkit).
+
+Особенности контейнеризации:
+- **OCR скан-PDF работает «из коробки»** — в образ backend ставится Tesseract
+  с русским языком (`tesseract-ocr`, `tesseract-ocr-rus`); путь определяется
+  автоматически (`backend/knowledge/ocr.py`).
+- **Компас-3D НЕ контейнеризуется** (нужен Windows + COM + установленный Компас).
+  `kompas-connector` запускается отдельно на Windows-машине, backend ходит к нему
+  по сети (`KOMPAS_CONNECTOR_URL`). Без него платформа работает, чертежи — по запросу.
+- Данные (Chroma, загрузки, БД) хранятся в `./data` (volumes), переживают пересборку.
+- `.dockerignore` исключает `.venv`, кэши, локальные данные и `.env` из образов.
 
 ## Как добавить нового агента
 Вариант А (через UI, без перезапуска): кнопка-шестерёнка в сайдбаре →
