@@ -51,6 +51,20 @@ class ProjectExportData:
         return self.created_at.strftime("%d.%m.%Y")
 
 
+def firing_lines(spec: dict) -> list[str]:
+    """Текстовые строки режима обжига для документов."""
+    f = (spec or {}).get("firing")
+    if not f or not f.get("zones"):
+        return []
+    lines = [f"Максимальная температура {f['max_temp_c']:g} °C, полное время "
+             f"{f['residence_h']:g} ч."]
+    for z in f["zones"]:
+        lines.append(f"{z['name']} ({z['temp_range_c']}): {z['time_h']:g} ч ({z['share_pct']:g}%).")
+    lines.append(f"Расход природного газа: {f['gas_m3_per_hour']:,.0f} м³/ч "
+                 f"({f['gas_m3_per_1000']:,.0f} м³/1000 шт).".replace(",", " "))
+    return lines
+
+
 def balance_lines(spec: dict) -> list[str]:
     """Текстовые строки материального баланса по переделам для документов."""
     bal = (spec or {}).get("balance")

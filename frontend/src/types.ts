@@ -100,6 +100,13 @@ export interface ProjectSpec {
     reject_drying_t: number
     reject_firing_t: number
   }
+  firing?: {
+    max_temp_c: number
+    residence_h: number
+    gas_m3_per_hour: number
+    gas_m3_per_1000: number
+    zones: { name: string; temp_range_c: string; share_pct: number; time_h: number }[]
+  }
 }
 
 export interface LabComponent {

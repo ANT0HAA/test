@@ -220,6 +220,16 @@ export default function SpecModal({ projectId, projectName, onClose, onEditInput
                 </Section>
               )}
 
+              {spec.firing && (
+                <Section title="Режим обжига (туннельная печь)">
+                  <Row k="Макс. температура / время" v={`${spec.firing.max_temp_c} °C · ${spec.firing.residence_h} ч`} />
+                  {spec.firing.zones.map((z, i) => (
+                    <Row key={i} k={`${z.name} (${z.temp_range_c})`} v={`${z.time_h} ч · ${z.share_pct}%`} />
+                  ))}
+                  <Row k="Расход газа" v={`${fmt(spec.firing.gas_m3_per_hour)} м³/ч · ${fmt(spec.firing.gas_m3_per_1000)} м³/1000 шт`} />
+                </Section>
+              )}
+
               {spec.balance && (
                 <Section title="Материальный баланс по переделам">
                   {spec.balance.stages.map((s, i) => (

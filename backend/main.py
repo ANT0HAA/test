@@ -56,7 +56,7 @@ from calc import (
     EstimateInput, EstimateResult, cost_estimate,
     ShihtaInput, ShihtaResult, shihta_calc,
     buildings_from_areas, parse_capacity, production_program,
-    LabInput, BalanceInput,
+    LabInput, BalanceInput, FiringInput,
 )
 
 logging.basicConfig(level=logging.INFO)
@@ -702,6 +702,16 @@ async def calc_balance(payload: BalanceInput):
     from calc import material_balance
     try:
         return material_balance(payload)
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+
+
+@app.post("/api/calc/firing")
+async def calc_firing(payload: FiringInput):
+    """Режим обжига в туннельной печи и расход топлива (зоны, время, газ/1000)."""
+    from calc import firing_calc
+    try:
+        return firing_calc(payload)
     except ValueError as e:
         raise HTTPException(status_code=400, detail=str(e))
 

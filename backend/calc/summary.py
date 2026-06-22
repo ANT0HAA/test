@@ -118,6 +118,9 @@ def build_spec(values: dict) -> dict:
     bal = material_balance(BalanceInput(
         pieces_per_year=prog.pieces_per_year, piece_mass_kg=prod_in.piece_mass_kg,
         operating_hours_per_year=prog.operating_hours_per_year))
+    from .firing import FiringInput, firing_calc
+    fir = firing_calc(FiringInput(pieces_per_hour=prog.pieces_per_hour,
+                                  piece_mass_kg=prod_in.piece_mass_kg))
 
     return {
         "has_data": True,
@@ -163,5 +166,13 @@ def build_spec(values: dict) -> dict:
             "loi_removed_firing_t": bal.loi_removed_firing_t,
             "reject_drying_t": bal.reject_drying_t,
             "reject_firing_t": bal.reject_firing_t,
+        },
+        "firing": {
+            "max_temp_c": fir.max_temp_c,
+            "residence_h": fir.residence_h,
+            "gas_m3_per_hour": fir.gas_m3_per_hour,
+            "gas_m3_per_1000": fir.gas_m3_per_1000,
+            "zones": [{"name": z.name, "temp_range_c": z.temp_range_c,
+                       "share_pct": z.share_pct, "time_h": z.time_h} for z in fir.zones],
         },
     }

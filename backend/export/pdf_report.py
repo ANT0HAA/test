@@ -15,7 +15,7 @@ from reportlab.platypus import (
     Paragraph, SimpleDocTemplate, Spacer, Table, TableStyle,
 )
 
-from .common import ProjectExportData, ORG_NAME, ORG_SUBTITLE, lab_lines, balance_lines
+from .common import ProjectExportData, ORG_NAME, ORG_SUBTITLE, lab_lines, balance_lines, firing_lines
 from .fonts import ensure_fonts
 
 
@@ -107,6 +107,16 @@ async def build_summary_report(data: ProjectExportData) -> bytes:
             if para:
                 flow.append(Paragraph(_escape(para), body))
                 flow.append(Spacer(1, 1 * mm))
+
+    fir_block = firing_lines(data.spec)
+    if fir_block:
+        no += 1
+        flow.append(Spacer(1, 5 * mm))
+        flow.append(Paragraph(f"{no}. Режим обжига", h1))
+        flow.append(Spacer(1, 3 * mm))
+        for line in fir_block:
+            flow.append(Paragraph(_escape(line), body))
+            flow.append(Spacer(1, 1 * mm))
 
     bal_block = balance_lines(data.spec)
     if bal_block:
