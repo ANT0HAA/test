@@ -66,6 +66,22 @@ def test_equipment_selection_scales():
     assert all(i.qty >= 1 for i in big.items)
 
 
+def test_equipment_full_line_and_cars():
+    r = select_equipment(EquipmentInput(pieces_per_hour=3750, piece_mass_kg=2.6))
+    roles = {i.role for i in r.items}
+    # сквозная линия — все ключевые переделы присутствуют
+    for role in ("Подготовка", "Формование", "Резка", "Садка", "Сушка", "Обжиг",
+                 "Пакетирование", "Транспорт"):
+        assert role in roles, role
+    # вагонеточный парк рассчитан и масштабируется со временем обжига
+    cars = {i.name: i.qty for i in r.items if i.role == "Транспорт"}
+    assert cars["Вагонетки печные"] > 0 and cars["Вагонетки сушильные"] > 0
+    more = select_equipment(EquipmentInput(pieces_per_hour=3750, piece_mass_kg=2.6,
+                                           kiln_residence_h=60))
+    kiln_more = next(i.qty for i in more.items if i.name == "Вагонетки печные")
+    assert kiln_more > cars["Вагонетки печные"]   # дольше обжиг → больше вагонеток
+
+
 def test_estimate_matches_document_cost():
     # Себестоимость на 1000 шт по нормам и ценам документа = 2255.5 руб
     prog = production_program(ProductionInput(pieces_per_year=1_000_000))
