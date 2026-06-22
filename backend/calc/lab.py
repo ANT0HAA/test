@@ -177,6 +177,46 @@ def clay_yard(annual_clay_t: float, store_days: int = 30, bulk_density_t_m3: flo
         layers=layers, height_m=height_m, area_m2=round(area, 1), notes=notes)
 
 
+# ─── Выработка карьера ─────────────────────────────────────────────────
+
+class QuarryResult(BaseModel):
+    usable_clay_t: float        # нужно заводу (полезного), т/год
+    mined_clay_t: float         # добыть с учётом потерь, т/год
+    mined_volume_m3: float      # объём полезного ископаемого, м³/год
+    overburden_m3: float        # объём вскрыши, м³/год
+    life_years: float | None    # срок отработки (если заданы запасы)
+    notes: list[str] = []
+
+
+def quarry_output(annual_clay_t: float, losses_pct: float = 5.0,
+                  overburden_ratio: float = 0.3, density_t_m3: float = 1.7,
+                  reserves_t: float = 0.0) -> QuarryResult:
+    """
+    Годовая выработка карьера по потребности завода в глине.
+    Добыча с учётом потерь: Mдоб = Mполезн / (1 − потери). Объём вскрыши — по
+    коэффициенту вскрыши. Срок отработки = запасы / годовая добыча (если запасы заданы).
+    Коэффициенты — типовые, уточняются по геологическому отчёту/проекту карьера.
+    """
+    if annual_clay_t <= 0:
+        raise ValueError("Годовой расход глины должен быть > 0")
+    losses = max(0.0, min(0.3, losses_pct / 100.0))
+    mined_t = annual_clay_t / (1.0 - losses)
+    mined_m3 = mined_t / density_t_m3
+    overburden_m3 = mined_m3 * overburden_ratio
+    life = round(reserves_t / mined_t, 1) if reserves_t and reserves_t > 0 else None
+    notes = [f"Добыча с учётом потерь {losses_pct:g}% = {mined_t:,.0f} т/год.".replace(",", " "),
+             f"Вскрыша по коэффициенту {overburden_ratio:g} = {overburden_m3:,.0f} м³/год."
+             .replace(",", " "),
+             "Потери/вскрыша/плотность — типовые, уточняются по проекту карьера."]
+    if life:
+        notes.append(f"Срок отработки при запасах {reserves_t:,.0f} т ≈ {life} лет."
+                     .replace(",", " "))
+    return QuarryResult(
+        usable_clay_t=round(annual_clay_t, 1), mined_clay_t=round(mined_t, 1),
+        mined_volume_m3=round(mined_m3, 1), overburden_m3=round(overburden_m3, 1),
+        life_years=life, notes=notes)
+
+
 # ─── Питатели (дозирование компонентов) ────────────────────────────────
 
 # Типовые ящичные питатели (марка, производительность т/ч) — ПЛЕЙСХОЛДЕР,
@@ -259,6 +299,7 @@ class LabInput(BaseModel):
     sand_plasticity: float = 0.0
     sensitivity_coeff: float | None = None    # коэффициент чувствительности к сушке (из лаборатории)
     annual_clay_t: float = 0.0                # годовой расход глины (из производственной программы)
+    reserves_t: float = 0.0                   # запасы сырья (из геологического отчёта), т
     raw_tph: float = 0.0                      # производительность по сырью, т/ч
     max_feeders: int = 3
 
@@ -281,6 +322,8 @@ def lab_report(inp: LabInput) -> dict:
     feeders = select_feeder(inp.raw_tph or 1.0, components=len(inp.clays) + 1,
                             max_feeders=inp.max_feeders, averaging=True)
     yard = clay_yard(inp.annual_clay_t) if inp.annual_clay_t > 0 else None
+    quarry = quarry_output(inp.annual_clay_t, reserves_t=inp.reserves_t).model_dump() \
+        if inp.annual_clay_t > 0 else None
 
     sensitivity = None
     if inp.sensitivity_coeff is not None:
@@ -308,5 +351,6 @@ def lab_report(inp: LabInput) -> dict:
         "forming": forming,
         "feeders": feeders.model_dump(),
         "yard": yard.model_dump() if yard else None,
+        "quarry": quarry,
         "control_points": control_points,
     }

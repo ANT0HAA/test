@@ -178,6 +178,15 @@ export default function LabModal({ projectId, projectName, onClose }: Props) {
                 <Row k="Производительность" v={`${result.feeders.unit_capacity_tph} т/ч`} />
               </Sec>
 
+              {result.quarry && (
+                <Sec title="Выработка карьера">
+                  <Row k="Нужно заводу (полезного)" v={`${result.quarry.usable_clay_t} т/год`} />
+                  <Row k="Добыть (с потерями)" v={`${result.quarry.mined_clay_t} т/год`} />
+                  <Row k="Объём / вскрыша" v={`${result.quarry.mined_volume_m3} · ${result.quarry.overburden_m3} м³/год`} />
+                  {result.quarry.life_years && <Row k="Срок отработки" v={`≈ ${result.quarry.life_years} лет`} />}
+                </Sec>
+              )}
+
               {result.yard && (
                 <Sec title="Усреднительный штабель">
                   <Row k="Запас" v={`${result.yard.stockpile_t} т`} />

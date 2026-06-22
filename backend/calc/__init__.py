@@ -20,6 +20,7 @@ from .lab import (
     plasticity_number, plasticity_group, recommended_target_plasticity,
     sensitivity_group, ClaySource,
     average_blend, recommend_leaning, LeaningResult, clay_yard, YardResult,
+    quarry_output, QuarryResult,
     select_feeder, FeederResult, forming_guidance, LabInput, lab_report,
 )
 
@@ -35,5 +36,6 @@ __all__ = [
     "plasticity_number", "plasticity_group", "recommended_target_plasticity",
     "sensitivity_group", "ClaySource",
     "average_blend", "recommend_leaning", "LeaningResult", "clay_yard", "YardResult",
+    "quarry_output", "QuarryResult",
     "select_feeder", "FeederResult", "forming_guidance", "LabInput", "lab_report",
 ]

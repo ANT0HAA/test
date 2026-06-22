@@ -75,6 +75,17 @@ def test_recommend_leaning_not_needed():
     assert r.sand_fraction_pct == 0.0
 
 
+def test_quarry_output():
+    from calc import quarry_output
+    q = quarry_output(annual_clay_t=33000, losses_pct=5.0, density_t_m3=1.7, reserves_t=660000)
+    # добыча с учётом 5% потерь = 33000 / 0.95 ≈ 34737 т
+    assert abs(q.mined_clay_t - 34736.8) < 1.0
+    assert q.mined_volume_m3 > 0 and q.overburden_m3 > 0
+    assert q.life_years is not None and q.life_years > 0   # запасы заданы
+    # без запасов — срок не считается
+    assert quarry_output(annual_clay_t=33000).life_years is None
+
+
 def test_clay_yard_layers():
     y = clay_yard(annual_clay_t=33000, store_days=30, height_m=4.0, layer_thickness_m=0.3)
     assert y.layers == 13          # round(4/0.3)
