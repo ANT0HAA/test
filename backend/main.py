@@ -56,7 +56,7 @@ from calc import (
     EstimateInput, EstimateResult, cost_estimate,
     ShihtaInput, ShihtaResult, shihta_calc,
     buildings_from_areas, parse_capacity, production_program,
-    LabInput, BalanceInput, FiringInput, EnergyInput,
+    LabInput, BalanceInput, FiringInput, EnergyInput, CapexInput,
 )
 
 logging.basicConfig(level=logging.INFO)
@@ -722,6 +722,16 @@ async def calc_energy(payload: EnergyInput):
     from calc import energy_balance
     try:
         return energy_balance(payload)
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+
+
+@app.post("/api/calc/capex")
+async def calc_capex(payload: CapexInput):
+    """Ориентировочные капзатраты и срок окупаемости (при заданной цене продажи)."""
+    from calc import capex_estimate
+    try:
+        return capex_estimate(payload)
     except ValueError as e:
         raise HTTPException(status_code=400, detail=str(e))
 

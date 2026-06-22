@@ -12,7 +12,7 @@ from docx.enum.text import WD_ALIGN_PARAGRAPH
 from docx.shared import Pt
 
 from .common import (ProjectExportData, ORG_NAME, ORG_SUBTITLE,
-                     lab_lines, balance_lines, firing_lines, energy_lines)
+                     lab_lines, balance_lines, firing_lines, energy_lines, plant_lines)
 
 
 def _add_stamp(doc: Document, data: ProjectExportData) -> None:
@@ -119,6 +119,14 @@ async def build_explanatory_note(data: ProjectExportData) -> bytes:
         no += 1
         doc.add_heading(f"{no}. Лаборатория · сырьё и шихта", level=1)
         for line in lab_block:
+            doc.add_paragraph(line)
+
+    # ── Завод в целом (марки, склады, штат, экономика, экология) ──
+    plant_block = plant_lines(data.spec)
+    if plant_block:
+        no += 1
+        doc.add_heading(f"{no}. Завод: марки, склады, штат, экономика, экология", level=1)
+        for line in plant_block:
             doc.add_paragraph(line)
 
     # ── Разделы по специалистам ──

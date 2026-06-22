@@ -16,7 +16,7 @@ from reportlab.platypus import (
 )
 
 from .common import (ProjectExportData, ORG_NAME, ORG_SUBTITLE,
-                     lab_lines, balance_lines, firing_lines, energy_lines)
+                     lab_lines, balance_lines, firing_lines, energy_lines, plant_lines)
 from .fonts import ensure_fonts
 
 
@@ -146,6 +146,16 @@ async def build_summary_report(data: ProjectExportData) -> bytes:
         flow.append(Paragraph(f"{no}. Лаборатория · сырьё и шихта", h1))
         flow.append(Spacer(1, 3 * mm))
         for line in lab_block:
+            flow.append(Paragraph(_escape(line), body))
+            flow.append(Spacer(1, 1 * mm))
+
+    plant_block = plant_lines(data.spec)
+    if plant_block:
+        no += 1
+        flow.append(Spacer(1, 5 * mm))
+        flow.append(Paragraph(f"{no}. Завод: марки, склады, штат, экономика, экология", h1))
+        flow.append(Spacer(1, 3 * mm))
+        for line in plant_block:
             flow.append(Paragraph(_escape(line), body))
             flow.append(Spacer(1, 1 * mm))
 

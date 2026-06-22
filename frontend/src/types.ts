@@ -113,6 +113,14 @@ export interface ProjectSpec {
     coverage_pct: number
     net_dryer_gas_m3_per_h: number
   }
+  grades?: { strength: string; frost: string; water: string; control: string[]; standard: string }
+  warehouses?: {
+    raw_store_days: number; raw_store_t: number
+    fg_store_days: number; fg_pieces: number; fg_pallets: number; fg_area_m2: number
+  }
+  staffing?: { per_shift: number; shifts_per_day: number; workers_total: number; admin: number; headcount: number; by_area: Record<string, number> }
+  ecology?: { co2_t_per_year: number; measures: string[] }
+  capex?: { buildings_rub: number; equipment_rub: number; engineering_rub: number; total_rub: number; payback_years: number | null }
 }
 
 export interface LabComponent {

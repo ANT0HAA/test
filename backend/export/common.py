@@ -65,6 +65,37 @@ def firing_lines(spec: dict) -> list[str]:
     return lines
 
 
+def plant_lines(spec: dict) -> list[str]:
+    """Строки «завод в целом»: марки, склады, штат, экономика, экология — для документов."""
+    lines: list[str] = []
+    g = (spec or {}).get("grades")
+    if g:
+        lines.append(f"Марки ({g.get('standard')}): прочность {g['strength']}, "
+                     f"морозостойкость {g['frost']}, водопоглощение {g['water']}.")
+    w = (spec or {}).get("warehouses")
+    if w:
+        lines.append(f"Склады: сырьё {w['raw_store_t']:,.0f} т ({w['raw_store_days']} сут); "
+                     f"готовая продукция {w['fg_pieces']:,.0f} шт / {w['fg_pallets']:,.0f} поддонов "
+                     f"({w['fg_store_days']} сут), площадь ≈ {w['fg_area_m2']:,.0f} м².".replace(",", " "))
+    s = (spec or {}).get("staffing")
+    if s:
+        lines.append(f"Штат (ориентировочно): {s['headcount']} чел "
+                     f"(рабочих {s['workers_total']}, ИТР/АУП {s['admin']}; "
+                     f"{s['per_shift']} чел/смену × {s['shifts_per_day']} см).")
+    c = (spec or {}).get("capex")
+    if c:
+        pay = f", срок окупаемости ≈ {c['payback_years']} лет" if c.get("payback_years") else ""
+        lines.append(f"Капзатраты (ориентировочно): итого {c['total_rub']:,.0f} ₽ "
+                     f"(строительство {c['buildings_rub']:,.0f} ₽, инженерия {c['engineering_rub']:,.0f} ₽){pay}."
+                     .replace(",", " "))
+    e = (spec or {}).get("ecology")
+    if e:
+        lines.append(f"Экология: выбросы CO2 ≈ {e['co2_t_per_year']:,.0f} т/год; "
+                     f"аспирация/пылеочистка, дымоочистка печи, оборотное водоснабжение."
+                     .replace(",", " "))
+    return lines
+
+
 def energy_lines(spec: dict) -> list[str]:
     """Текстовые строки энергобаланса печь→сушило для документов."""
     e = (spec or {}).get("energy")

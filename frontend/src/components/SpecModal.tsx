@@ -238,6 +238,46 @@ export default function SpecModal({ projectId, projectName, onClose, onEditInput
                 </Section>
               )}
 
+              {spec.grades && (
+                <Section title={`Марки и качество (${spec.grades.standard})`}>
+                  <Row k="Марка прочности" v={spec.grades.strength} />
+                  <Row k="Морозостойкость" v={spec.grades.frost} />
+                  <Row k="Водопоглощение" v={spec.grades.water} />
+                </Section>
+              )}
+
+              {spec.warehouses && (
+                <Section title="Склады (запасы)">
+                  <Row k={`Сырьё (${spec.warehouses.raw_store_days} сут)`} v={`${fmt(spec.warehouses.raw_store_t)} т`} />
+                  <Row k={`Готовая продукция (${spec.warehouses.fg_store_days} сут)`} v={`${fmt(spec.warehouses.fg_pieces)} шт · ${fmt(spec.warehouses.fg_pallets)} поддонов`} />
+                  <Row k="Площадь склада ГП" v={`≈ ${fmt(spec.warehouses.fg_area_m2)} м²`} />
+                </Section>
+              )}
+
+              {spec.staffing && (
+                <Section title="Штат (ориентировочно)">
+                  <Row k="В смену / смен" v={`${spec.staffing.per_shift} чел · ${spec.staffing.shifts_per_day} см`} />
+                  <Row k="Рабочих / ИТР-АУП" v={`${spec.staffing.workers_total} / ${spec.staffing.admin}`} />
+                  <Row k="Всего" v={`${spec.staffing.headcount} чел`} />
+                </Section>
+              )}
+
+              {spec.capex && (
+                <Section title="Капзатраты (ориентировочно)">
+                  <Row k="Строительство" v={`${fmt(spec.capex.buildings_rub)} ₽`} />
+                  {spec.capex.equipment_rub > 0 && <Row k="Оборудование" v={`${fmt(spec.capex.equipment_rub)} ₽`} />}
+                  <Row k="Инженерия/монтаж" v={`${fmt(spec.capex.engineering_rub)} ₽`} />
+                  <Row k="Итого" v={`${fmt(spec.capex.total_rub)} ₽`} />
+                  {spec.capex.payback_years && <Row k="Срок окупаемости" v={`≈ ${spec.capex.payback_years} лет`} />}
+                </Section>
+              )}
+
+              {spec.ecology && (
+                <Section title="Экология">
+                  <Row k="Выбросы CO₂ (газ)" v={`≈ ${fmt(spec.ecology.co2_t_per_year)} т/год`} />
+                </Section>
+              )}
+
               {spec.balance && (
                 <Section title="Материальный баланс по переделам">
                   {spec.balance.stages.map((s, i) => (

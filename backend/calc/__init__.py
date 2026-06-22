@@ -19,6 +19,7 @@ from .summary import build_summary, build_spec, parse_capacity
 from .balance import BalanceInput, BalanceStage, BalanceResult, material_balance
 from .firing import FiringInput, FiringZone, FiringResult, firing_calc
 from .energy import EnergyInput, EnergyResult, energy_balance
+from .plant import quality_grades, warehouses, staffing, ecology, CapexInput, capex_estimate
 from .lab import (
     plasticity_number, plasticity_group, recommended_target_plasticity,
     sensitivity_group, ClaySource,
@@ -39,6 +40,7 @@ __all__ = [
     "BalanceInput", "BalanceStage", "BalanceResult", "material_balance",
     "FiringInput", "FiringZone", "FiringResult", "firing_calc",
     "EnergyInput", "EnergyResult", "energy_balance",
+    "quality_grades", "warehouses", "staffing", "ecology", "CapexInput", "capex_estimate",
     "plasticity_number", "plasticity_group", "recommended_target_plasticity",
     "sensitivity_group", "ClaySource",
     "average_blend", "recommend_leaning", "LeaningResult", "clay_yard", "YardResult",

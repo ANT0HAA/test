@@ -126,6 +126,14 @@ def build_spec(values: dict) -> dict:
     water_kg_h = bal.water_removed_drying_t * 1000.0 / _hours
     en = energy_balance(EnergyInput(water_removed_kg_per_h=water_kg_h,
                                     kiln_heat_kcal_per_h=fir.heat_per_hour_kcal))
+    from .plant import quality_grades, warehouses, staffing, ecology, CapexInput, capex_estimate
+    grades = quality_grades(values.get("product", ""))
+    annual_clay = prog.resources_per_year.get("clay_main_t", 0) + prog.resources_per_year.get("clay_kaolin_t", 0)
+    wh = warehouses(annual_clay, prog.pieces_per_year, prod_in.piece_mass_kg)
+    stf = staffing(shifts_per_day=int(getattr(prod_in, "shifts_per_day", 2) or 2))
+    eco = ecology(prog.resources_per_year.get("gas_m3", 0))
+    cap = capex_estimate(CapexInput(total_area_m2=ar.total_m2, pieces_per_year=prog.pieces_per_year,
+                                    cost_per_1000_rub=est.cost_per_1000_rub))
 
     return {
         "has_data": True,
@@ -186,4 +194,9 @@ def build_spec(values: dict) -> dict:
             "coverage_pct": en.coverage_pct,
             "net_dryer_gas_m3_per_h": en.net_dryer_gas_m3_per_h,
         },
+        "grades": grades,
+        "warehouses": wh,
+        "staffing": stf,
+        "ecology": eco,
+        "capex": cap,
     }
