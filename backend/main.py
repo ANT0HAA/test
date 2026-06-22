@@ -106,10 +106,14 @@ app = FastAPI(
     version="0.1.0",
 )
 
+# CORS: источники из настроек (на сервере — конкретные домены). Авторизация —
+# через Bearer-заголовок, не cookies, поэтому allow_credentials не требуется
+# (и недопустим вместе с "*").
+_cors_origins = [o.strip() for o in settings.cors_origins.split(",") if o.strip()] or ["*"]
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],
-    allow_credentials=True,
+    allow_origins=_cors_origins,
+    allow_credentials=False,
     allow_methods=["*"],
     allow_headers=["*"],
 )
@@ -176,13 +180,18 @@ async def auth_me(user=Depends(get_current_user)):
 
 @app.post("/api/auth/register")
 async def auth_register(body: RegisterBody):
-    """Регистрация. Первый зарегистрированный пользователь становится администратором."""
+    """Регистрация. Первый пользователь становится администратором; далее публичная
+    регистрация закрыта (новых заводит админ), если не включена ALLOW_OPEN_REGISTRATION."""
     username = body.username.strip()
     if not username or not body.password:
         raise HTTPException(status_code=400, detail="Укажите логин и пароль")
+    is_first = await storage.count_users() == 0
+    if not is_first and not settings.allow_open_registration:
+        raise HTTPException(status_code=403,
+                            detail="Регистрация закрыта. Обратитесь к администратору.")
     if await storage.get_user_by_username(username):
         raise HTTPException(status_code=409, detail="Пользователь с таким логином уже есть")
-    role = "admin" if await storage.count_users() == 0 else "user"
+    role = "admin" if is_first else "user"
     user = await storage.create_user(username, security.hash_password(body.password), role)
     token = security.new_token()
     await storage.create_session(user.id, token,

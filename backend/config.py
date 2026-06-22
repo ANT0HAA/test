@@ -36,6 +36,14 @@ class Settings(BaseSettings):
     # Anthropic (опционально, если переключиться обратно)
     anthropic_api_key: str = ""
 
+    # Безопасность / доступ
+    # Разрешённые источники CORS: "*" (разработка) или список через запятую
+    # (напр. "https://bureau.example.com"). На сервере задайте конкретные домены.
+    cors_origins: str = "*"
+    # Публичная сам/регистрация после создания первого администратора.
+    # По умолчанию закрыта: новых пользователей заводит администратор.
+    allow_open_registration: bool = False
+
     # OCR скан-PDF (Tesseract). Пути авто-определяются, можно переопределить в .env.
     ocr_enabled: bool = True
     tesseract_cmd: str = ""           # путь к tesseract.exe (пусто → автопоиск)
