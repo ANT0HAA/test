@@ -27,6 +27,13 @@ def _data():
         calc_summary="Производственная программа:\n  • выпуск: 15 000 000 шт/год",
         equipment=[{"role": "Формование", "name": "Пресс СМК-133", "capacity": "20 т/ч", "qty": 1},
                    {"role": "Обжиг", "name": "Туннельная печь", "capacity": "L≈80 м", "qty": 1}],
+        lab={"has_data": True,
+             "blend": {"plasticity": 24.0, "group": "среднепластичное", "clays": 2, "oxides": {}},
+             "leaning": {"need_leaning": True, "sand_fraction_pct": 40.0, "target_plasticity": 12.0},
+             "feeders": {"feeders_used": 3, "model": "СМК-78 (ящичный)", "unit_capacity_tph": 25.0},
+             "forming": {"method": "пластическое", "moisture": "18–25%",
+                         "press": "вакуумный шнековый пресс", "additive_stage": "в массоподготовке"},
+             "control_points": ["Число пластичности каждой глины"]},
     )
 
 
@@ -39,7 +46,17 @@ async def test_docx_valid_and_structured():
     assert "Конструктор" in text
     assert "Расчётные данные" in text          # раздел из расчётов
     assert "15 000 000" in text                # цифра из расчётов
+    assert "Лаборатория" in text               # лабораторный раздел
+    assert "среднепластичное" in text          # данные шихты
     assert len(doc.tables) >= 1  # штамп
+
+
+def test_lab_lines_formats():
+    from export.common import lab_lines
+    lines = lab_lines(_data().lab)
+    assert any("шихта" in s for s in lines)
+    assert any("Отощитель" in s for s in lines)
+    assert lab_lines({}) == []                 # нет данных — нет раздела
 
 
 async def test_xlsx_equipment_from_calc():

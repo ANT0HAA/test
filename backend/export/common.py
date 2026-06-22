@@ -40,6 +40,7 @@ class ProjectExportData:
     calc_summary: str = ""                                   # детерминированные расчёты (текст)
     equipment: list[dict] = field(default_factory=list)      # подобранное оборудование
     spec: dict = field(default_factory=dict)                 # структурная спецификация (единый источник)
+    lab: dict = field(default_factory=dict)                  # лабораторный расчёт по сырью (если задан)
 
     @property
     def industry_name(self) -> str:
@@ -48,6 +49,45 @@ class ProjectExportData:
     @property
     def date_str(self) -> str:
         return self.created_at.strftime("%d.%m.%Y")
+
+
+def lab_lines(lab: dict) -> list[str]:
+    """Текстовые строки лабораторного раздела для документов (docx/pdf)."""
+    if not lab or not lab.get("has_data"):
+        return []
+    lines: list[str] = []
+    b = lab.get("blend", {})
+    if b:
+        lines.append(f"Усреднённая шихта: Ip {b.get('plasticity')} — {b.get('group')} "
+                     f"(глин: {b.get('clays')}).")
+    ln = lab.get("leaning", {})
+    if ln:
+        if ln.get("need_leaning"):
+            lines.append(f"Отощитель (песок): ≈ {ln.get('sand_fraction_pct')}% "
+                         f"(цель Ip {ln.get('target_plasticity')}).")
+        else:
+            lines.append("Отощитель не требуется — пластичность в норме.")
+    s = lab.get("sensitivity")
+    if s:
+        lines.append(f"Чувствительность к сушке: Кч {s.get('coeff')} — {s.get('group')} "
+                     f"({s.get('recommendation')}).")
+    f = lab.get("feeders", {})
+    if f:
+        lines.append(f"Питатели: {f.get('feeders_used')} × {f.get('model')} "
+                     f"({f.get('unit_capacity_tph')} т/ч).")
+    q = lab.get("quarry")
+    if q:
+        life = f", срок отработки ≈ {q.get('life_years')} лет" if q.get("life_years") else ""
+        lines.append(f"Выработка карьера: добыть {q.get('mined_clay_t')} т/год "
+                     f"(полезного {q.get('usable_clay_t')} т/год){life}.")
+    fm = lab.get("forming", {})
+    if fm:
+        lines.append(f"Формование ({fm.get('method')}): влажность {fm.get('moisture')}, "
+                     f"{fm.get('press')}. Добавки: {fm.get('additive_stage')}.")
+    cps = lab.get("control_points", [])
+    if cps:
+        lines.append("Контрольные точки опробования: " + "; ".join(cps))
+    return lines
 
 
 async def collect_project_content(project_id: str) -> ProjectExportData:
@@ -107,6 +147,32 @@ async def collect_project_content(project_id: str) -> ProjectExportData:
     except Exception:
         pass
 
+    # Лабораторный расчёт по сырью — ТОЛЬКО по сохранённым в проект данным
+    # (детерминированно, без LLM). Если глины не заданы — раздела в документе нет.
+    lab: dict = {}
+    try:
+        saved = await storage.get_project_lab(project_id)
+        if saved.get("clays"):
+            from calc import ClaySource, LabInput, lab_report
+            annual_clay = 0.0
+            raw_tph = 0.0
+            if spec.get("has_data"):
+                res = spec.get("resources", {})
+                annual_clay = (res.get("clay_main_t", 0) or 0) + (res.get("clay_kaolin_t", 0) or 0)
+                raw_tph = spec.get("equipment", {}).get("throughput_tph", 0) or 0
+            clays = [ClaySource(name=c.get("name", ""),
+                                plasticity=float(c.get("plasticity") or 15.0),
+                                oxides=c.get("oxides") or {})
+                     for c in saved["clays"] if c.get("name")]
+            if clays:
+                lab = lab_report(LabInput(
+                    clays=clays, forming=saved.get("forming") or "пластическое",
+                    sensitivity_coeff=saved.get("sensitivity_coeff"),
+                    annual_clay_t=annual_clay, raw_tph=raw_tph,
+                    reserves_t=float(saved.get("reserves_t") or 0)))
+    except Exception:
+        pass
+
     return ProjectExportData(
         project_id=project.id,
         name=project.name,
@@ -118,4 +184,5 @@ async def collect_project_content(project_id: str) -> ProjectExportData:
         calc_summary=calc_summary,
         equipment=equipment,
         spec=spec,
+        lab=lab,
     )

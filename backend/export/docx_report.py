@@ -11,7 +11,7 @@ from docx.enum.table import WD_TABLE_ALIGNMENT
 from docx.enum.text import WD_ALIGN_PARAGRAPH
 from docx.shared import Pt
 
-from .common import ProjectExportData, ORG_NAME, ORG_SUBTITLE
+from .common import ProjectExportData, ORG_NAME, ORG_SUBTITLE, lab_lines
 
 
 def _add_stamp(doc: Document, data: ProjectExportData) -> None:
@@ -79,15 +79,25 @@ async def build_explanatory_note(data: ProjectExportData) -> bytes:
         doc.add_paragraph("Задание не зафиксировано.")
 
     # ── Расчётные данные ──
+    no = 1
     if data.calc_summary:
-        doc.add_heading("2. Расчётные данные", level=1)
+        no += 1
+        doc.add_heading(f"{no}. Расчётные данные", level=1)
         for para in data.calc_summary.split("\n"):
             para = para.rstrip()
             if para:
                 doc.add_paragraph(para)
 
+    # ── Лаборатория (сырьё и шихта) ──
+    lab_block = lab_lines(data.lab)
+    if lab_block:
+        no += 1
+        doc.add_heading(f"{no}. Лаборатория · сырьё и шихта", level=1)
+        for line in lab_block:
+            doc.add_paragraph(line)
+
     # ── Разделы по специалистам ──
-    section_no = 3 if data.calc_summary else 2
+    section_no = no + 1
     doc.add_heading(f"{section_no}. Проектные решения", level=1)
     if not data.sections:
         doc.add_paragraph("По проекту пока нет проработанных решений специалистов.")

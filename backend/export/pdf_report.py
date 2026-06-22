@@ -15,7 +15,7 @@ from reportlab.platypus import (
     Paragraph, SimpleDocTemplate, Spacer, Table, TableStyle,
 )
 
-from .common import ProjectExportData, ORG_NAME, ORG_SUBTITLE
+from .common import ProjectExportData, ORG_NAME, ORG_SUBTITLE, lab_lines
 from .fonts import ensure_fonts
 
 
@@ -96,9 +96,11 @@ async def build_summary_report(data: ProjectExportData) -> bytes:
     else:
         flow.append(Paragraph("Задание не зафиксировано.", body))
 
+    no = 1
     if data.calc_summary:
+        no += 1
         flow.append(Spacer(1, 5 * mm))
-        flow.append(Paragraph("2. Расчётные данные", h1))
+        flow.append(Paragraph(f"{no}. Расчётные данные", h1))
         flow.append(Spacer(1, 3 * mm))
         for para in data.calc_summary.split("\n"):
             para = para.rstrip()
@@ -106,7 +108,17 @@ async def build_summary_report(data: ProjectExportData) -> bytes:
                 flow.append(Paragraph(_escape(para), body))
                 flow.append(Spacer(1, 1 * mm))
 
-    section_no = 3 if data.calc_summary else 2
+    lab_block = lab_lines(data.lab)
+    if lab_block:
+        no += 1
+        flow.append(Spacer(1, 5 * mm))
+        flow.append(Paragraph(f"{no}. Лаборатория · сырьё и шихта", h1))
+        flow.append(Spacer(1, 3 * mm))
+        for line in lab_block:
+            flow.append(Paragraph(_escape(line), body))
+            flow.append(Spacer(1, 1 * mm))
+
+    section_no = no + 1
     flow.append(Spacer(1, 5 * mm))
     flow.append(Paragraph(f"{section_no}. Проектные решения", h1))
     flow.append(Spacer(1, 3 * mm))
