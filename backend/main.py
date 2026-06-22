@@ -753,7 +753,8 @@ async def _clays_from_report(project_id: str) -> tuple[list, float | None]:
     from knowledge.chroma import project_search
     from calc import ClaySource
     text = project_search(
-        "число пластичности глина суглинок чувствительность к сушке усадка оксиды", project_id)
+        "число пластичности глина суглинок чувствительность к сушке усадка оксиды",
+        project_id, n_results=12)
     if not text:
         return [], None
     from graph.graph import _llm
@@ -767,12 +768,16 @@ async def _clays_from_report(project_id: str) -> tuple[list, float | None]:
     llm = _llm(streaming=False).with_structured_output(_ClaysLLM)
     res: _ClaysLLM = await llm.ainvoke(
         [SystemMessage(content=system), HumanMessage(content=text[:6000])])
+    # Пластичность не указана/некорректна (None или ≤0) → не выдумываем число,
+    # ставим нейтральное «умереннопластичное» 15 (пользователь поправит в окне)
     clays = [
-        ClaySource(name=c.name, plasticity=c.plasticity if c.plasticity is not None else 15.0,
+        ClaySource(name=c.name,
+                   plasticity=c.plasticity if (c.plasticity and c.plasticity > 0) else 15.0,
                    oxides=c.oxides or {})
         for c in res.clays if c.name
     ]
-    return clays, res.sensitivity_coeff
+    sens = res.sensitivity_coeff if (res.sensitivity_coeff and res.sensitivity_coeff > 0) else None
+    return clays, sens
 
 
 @app.post("/api/projects/{project_id}/lab")
