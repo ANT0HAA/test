@@ -219,6 +219,18 @@ export default function SpecModal({ projectId, projectName, onClose, onEditInput
                   <Row k="В год" v={`${fmt(spec.cost.total_per_year_rub)} ₽`} />
                 </Section>
               )}
+
+              {spec.balance && (
+                <Section title="Материальный баланс по переделам">
+                  {spec.balance.stages.map((s, i) => (
+                    <Row key={i} k={s.name} v={`${fmt(s.t_per_year)} т/год · ${s.t_per_hour} т/ч`} />
+                  ))}
+                  <Row k="Вода на затворение" v={`${fmt(spec.balance.forming_water_t_per_year)} т/год`} />
+                  <Row k="Удалено влаги (сушка)" v={`${fmt(spec.balance.water_removed_drying_t)} т/год`} />
+                  <Row k="Потери при прокаливании (обжиг)" v={`${fmt(spec.balance.loi_removed_firing_t)} т/год`} />
+                  <Row k="Брак сушки / обжига" v={`${fmt(spec.balance.reject_drying_t)} / ${fmt(spec.balance.reject_firing_t)} т/год`} />
+                </Section>
+              )}
             </>
           )}
 

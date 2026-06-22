@@ -91,6 +91,15 @@ export interface ProjectSpec {
     cost_per_1000_rub: number
     total_per_year_rub: number
   }
+  balance?: {
+    stages: { name: string; t_per_year: number; t_per_hour: number }[]
+    raw_dry_t_per_year: number
+    forming_water_t_per_year: number
+    water_removed_drying_t: number
+    loi_removed_firing_t: number
+    reject_drying_t: number
+    reject_firing_t: number
+  }
 }
 
 export interface LabComponent {

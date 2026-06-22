@@ -56,7 +56,7 @@ from calc import (
     EstimateInput, EstimateResult, cost_estimate,
     ShihtaInput, ShihtaResult, shihta_calc,
     buildings_from_areas, parse_capacity, production_program,
-    LabInput,
+    LabInput, BalanceInput,
 )
 
 logging.basicConfig(level=logging.INFO)
@@ -692,6 +692,16 @@ async def calc_shihta(payload: ShihtaInput):
     """Оксидный состав массы из состава шихты."""
     try:
         return shihta_calc(payload)
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+
+
+@app.post("/api/calc/balance")
+async def calc_balance(payload: BalanceInput):
+    """Материальный баланс производства по переделам (сырьё→сушка→обжиг→ГП)."""
+    from calc import material_balance
+    try:
+        return material_balance(payload)
     except ValueError as e:
         raise HTTPException(status_code=400, detail=str(e))
 

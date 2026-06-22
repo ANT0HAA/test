@@ -114,6 +114,10 @@ def build_spec(values: dict) -> dict:
     ar = estimate_areas(AreasInput(pieces_per_year=prog.pieces_per_year))
     est = cost_estimate(EstimateInput(resources_per_year=prog.resources_per_year,
                                       pieces_per_year=prog.pieces_per_year))
+    from .balance import BalanceInput, material_balance
+    bal = material_balance(BalanceInput(
+        pieces_per_year=prog.pieces_per_year, piece_mass_kg=prod_in.piece_mass_kg,
+        operating_hours_per_year=prog.operating_hours_per_year))
 
     return {
         "has_data": True,
@@ -146,5 +150,18 @@ def build_spec(values: dict) -> dict:
         "cost": {
             "cost_per_1000_rub": round(est.cost_per_1000_rub, 1),
             "total_per_year_rub": round(est.total_per_year_rub),
+        },
+        "balance": {
+            "stages": [
+                {"name": s.name, "t_per_year": round(s.t_per_year),
+                 "t_per_hour": round(s.t_per_hour, 1)}
+                for s in bal.stages
+            ],
+            "raw_dry_t_per_year": bal.raw_dry_t_per_year,
+            "forming_water_t_per_year": bal.forming_water_t_per_year,
+            "water_removed_drying_t": bal.water_removed_drying_t,
+            "loi_removed_firing_t": bal.loi_removed_firing_t,
+            "reject_drying_t": bal.reject_drying_t,
+            "reject_firing_t": bal.reject_firing_t,
         },
     }

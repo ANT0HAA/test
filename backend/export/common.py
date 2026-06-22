@@ -51,6 +51,22 @@ class ProjectExportData:
         return self.created_at.strftime("%d.%m.%Y")
 
 
+def balance_lines(spec: dict) -> list[str]:
+    """Текстовые строки материального баланса по переделам для документов."""
+    bal = (spec or {}).get("balance")
+    if not bal or not bal.get("stages"):
+        return []
+    lines = [f"{s['name']}: {s['t_per_year']:,.0f} т/год ({s['t_per_hour']:g} т/ч)."
+             .replace(",", " ") for s in bal["stages"]]
+    lines.append(f"Вода на затворение: {bal['forming_water_t_per_year']:,.0f} т/год; "
+                 f"удалено влаги в сушке: {bal['water_removed_drying_t']:,.0f} т/год; "
+                 f"потери при прокаливании (обжиг): {bal['loi_removed_firing_t']:,.0f} т/год."
+                 .replace(",", " "))
+    lines.append(f"Брак: сушки {bal['reject_drying_t']:,.0f} т/год, "
+                 f"обжига {bal['reject_firing_t']:,.0f} т/год.".replace(",", " "))
+    return lines
+
+
 def lab_lines(lab: dict) -> list[str]:
     """Текстовые строки лабораторного раздела для документов (docx/pdf)."""
     if not lab or not lab.get("has_data"):
