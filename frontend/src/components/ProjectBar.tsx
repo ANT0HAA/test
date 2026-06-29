@@ -29,7 +29,7 @@ export default function ProjectBar({
   }
 
   return (
-    <div className="px-6 py-2 border-b border-ink-600 bg-ink-800 flex items-center gap-2 relative">
+    <div className="px-6 h-14 shrink-0 border-b border-ink-600 bg-ink-800 flex items-center gap-2 relative">
       <Folder size={13} className="text-faint shrink-0" />
       <select
         value={activeId ?? ''}

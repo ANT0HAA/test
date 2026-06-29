@@ -59,7 +59,7 @@ export default function ChatPanel({
   return (
     <main className="flex-1 flex flex-col h-full bg-ink-900 min-w-0">
       {/* Header */}
-      <header className="px-6 py-3.5 border-b border-ink-600 flex items-center justify-between bg-ink-800">
+      <header className="px-6 h-14 shrink-0 border-b border-ink-600 flex items-center justify-between bg-ink-800">
         <div className="flex items-center gap-3 min-w-0">
           {current && (
             <div

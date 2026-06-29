@@ -34,7 +34,7 @@ export default function Sidebar({ agents, selected, onSelect, onOpenAdmin, indus
 
   return (
     <aside className="w-72 shrink-0 bg-ink-800 border-r border-ink-600 flex flex-col h-full">
-      <div className="px-5 py-4 border-b border-ink-600 flex items-start justify-between gap-2">
+      <div className="px-5 h-14 shrink-0 border-b border-ink-600 flex items-center justify-between gap-2">
         <div className="min-w-0">
           <h1 className="text-sm font-semibold text-clay-300 tracking-tight">
             КОНСТРУКТОРСКОЕ БЮРО
