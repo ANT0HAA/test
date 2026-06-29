@@ -399,6 +399,19 @@ async def websocket_chat(websocket: WebSocket, project_id: str):
             # (включая итерации доработки). Сохраняем все по завершении.
             bubbles: list[dict] = []      # [{"agent": id, "content": str}, ...]
             current: dict | None = None   # текущий пузырь
+            client_gone = False           # клиент отключился — прекращаем стрим
+
+            async def _send(payload: dict) -> bool:
+                """Отправить событие; при закрытом соединении — пометить и не падать."""
+                nonlocal client_gone
+                if client_gone:
+                    return False
+                try:
+                    await websocket.send_text(json.dumps(payload, ensure_ascii=False))
+                    return True
+                except Exception:
+                    client_gone = True
+                    return False
 
             try:
                 async for event in graph.astream_events(
@@ -406,6 +419,8 @@ async def websocket_chat(websocket: WebSocket, project_id: str):
                     version="v2",
                     config={"recursion_limit": GRAPH_RECURSION_LIMIT},
                 ):
+                    if client_gone:
+                        break  # клиент ушёл — не гоняем граф впустую
                     kind = event["event"]
                     meta = event.get("metadata", {})
                     node = meta.get("langgraph_node", "")
@@ -418,11 +433,8 @@ async def websocket_chat(websocket: WebSocket, project_id: str):
                         current = {"agent": agent, "raw": "", "content": ""}
                         bubbles.append(current)
                         agent_info = AGENTS.get(agent, {})
-                        await websocket.send_text(json.dumps({
-                            "type": "agent_start",
-                            "agent": agent,
-                            "display_name": agent_info.get("display_name", agent),
-                        }, ensure_ascii=False))
+                        await _send({"type": "agent_start", "agent": agent,
+                                     "display_name": agent_info.get("display_name", agent)})
 
                     # Токены текущего агента (без «размышлений»: стримим только видимую часть)
                     elif kind == "on_chat_model_stream" and current is not None:
@@ -433,32 +445,22 @@ async def websocket_chat(websocket: WebSocket, project_id: str):
                             delta = visible[len(current["content"]):]
                             if delta:
                                 current["content"] = visible
-                                await websocket.send_text(json.dumps({
-                                    "type": "token",
-                                    "content": delta,
-                                    "agent": agent,
-                                }, ensure_ascii=False))
+                                await _send({"type": "token", "content": delta, "agent": agent})
 
-                # Сохраняем в персистентную историю проекта ДО сигнала «done»,
-                # чтобы запись не потерялась, если клиент отключится сразу после done.
+                # Сохраняем в персистентную историю проекта (даже если клиент уже ушёл —
+                # работа агентов не пропадёт).
                 await storage.add_message(project_id, "human", selected_agent, user_message)
                 for b in bubbles:
                     if b["content"].strip():
                         await storage.add_message(project_id, "ai", b["agent"], b["content"])
 
-                # Сигнал конца
+                # Сигнал конца (если клиент ещё на связи)
                 last_agent = bubbles[-1]["agent"] if bubbles else selected_agent
-                await websocket.send_text(json.dumps({
-                    "type": "done",
-                    "agent": last_agent,
-                }, ensure_ascii=False))
+                await _send({"type": "done", "agent": last_agent})
 
             except Exception as e:
                 log.exception("Graph error in project %s", project_id)
-                await websocket.send_text(json.dumps({
-                    "type": "error",
-                    "message": f"Ошибка агента: {str(e)}",
-                }, ensure_ascii=False))
+                await _send({"type": "error", "message": f"Ошибка агента: {str(e)}"})
 
     except WebSocketDisconnect:
         manager.disconnect(project_id)
