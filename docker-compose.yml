@@ -26,7 +26,9 @@ services:
       POSTGRES_PASSWORD: bureau
       POSTGRES_DB: bureau
     ports:
-      - "5432:5432"
+      # Публикуем на 5433, чтобы не конфликтовать с локально установленным
+      # PostgreSQL на 5432 (внутри сети compose контейнеры ходят по postgres:5432).
+      - "5433:5432"
     volumes:
       - ./data/postgres:/var/lib/postgresql/data
     restart: unless-stopped
