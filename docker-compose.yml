@@ -14,14 +14,16 @@ services:
       # чтобы хранить модели в томе ./data/ollama (тогда нужен `ollama pull`).
       - D:/ollama/models:/root/.ollama/models
     restart: unless-stopped
-    # Раскомментируйте для использования GPU (нужен NVIDIA Container Toolkit):
-    # deploy:
-    #   resources:
-    #     reservations:
-    #       devices:
-    #         - driver: nvidia
-    #           count: all
-    #           capabilities: [gpu]
+    # GPU для Ollama (NVIDIA). На Windows работает через Docker Desktop + WSL2 при
+    # установленном драйвере NVIDIA. Без GPU модель считает на CPU (очень медленно).
+    # Если контейнер не стартует из-за отсутствия GPU-рантайма — закомментируйте блок.
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: all
+              capabilities: [gpu]
 
   postgres:
     image: postgres:16-alpine
