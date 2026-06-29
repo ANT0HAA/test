@@ -91,7 +91,9 @@ export default function App() {
       })
       .catch(console.error)
     fetchKnowledge(currentIndustry).then(setKnowledge).catch(console.error)
-  }, [currentIndustry])
+    // важно: зависим и от user — иначе после входа (user: null→set) при неизменной
+    // отрасли эффект не перезапустится и список агентов останется пустым
+  }, [currentIndustry, user])
 
   const refreshKnowledge = () =>
     fetchKnowledge(currentIndustry).then(setKnowledge).catch(console.error)
