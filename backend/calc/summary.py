@@ -28,7 +28,8 @@ def parse_capacity(text: str) -> ProductionInput | None:
     if not num:
         return None
     val = float(num.group(1).replace(" ", "").replace(",", "."))
-    if "млн" in low:
+    # «млн», «млн.», а также разговорное «15м» / «15 м» (м = миллион) → ×1 000 000
+    if "млн" in low or re.search(r"\d\s*м(?![а-яё])", low):
         val *= 1_000_000
     if "смен" in low:
         return ProductionInput(pieces_per_shift=val)
@@ -114,28 +115,7 @@ def build_spec(values: dict) -> dict:
     ar = estimate_areas(AreasInput(pieces_per_year=prog.pieces_per_year))
     est = cost_estimate(EstimateInput(resources_per_year=prog.resources_per_year,
                                       pieces_per_year=prog.pieces_per_year))
-    from .balance import BalanceInput, material_balance
-    bal = material_balance(BalanceInput(
-        pieces_per_year=prog.pieces_per_year, piece_mass_kg=prod_in.piece_mass_kg,
-        operating_hours_per_year=prog.operating_hours_per_year))
-    from .firing import FiringInput, firing_calc
-    fir = firing_calc(FiringInput(pieces_per_hour=prog.pieces_per_hour,
-                                  piece_mass_kg=prod_in.piece_mass_kg))
-    from .energy import EnergyInput, energy_balance
-    _hours = prog.operating_hours_per_year or 7920.0
-    water_kg_h = bal.water_removed_drying_t * 1000.0 / _hours
-    en = energy_balance(EnergyInput(water_removed_kg_per_h=water_kg_h,
-                                    kiln_heat_kcal_per_h=fir.heat_per_hour_kcal))
-    from .plant import quality_grades, warehouses, staffing, ecology, CapexInput, capex_estimate
-    grades = quality_grades(values.get("product", ""))
-    annual_clay = prog.resources_per_year.get("clay_main_t", 0) + prog.resources_per_year.get("clay_kaolin_t", 0)
-    wh = warehouses(annual_clay, prog.pieces_per_year, prod_in.piece_mass_kg)
-    stf = staffing(shifts_per_day=int(getattr(prod_in, "shifts_per_day", 2) or 2))
-    eco = ecology(prog.resources_per_year.get("gas_m3", 0))
-    cap = capex_estimate(CapexInput(total_area_m2=ar.total_m2, pieces_per_year=prog.pieces_per_year,
-                                    cost_per_1000_rub=est.cost_per_1000_rub))
-
-    return {
+    spec = {
         "has_data": True,
         "inputs": dict(values),
         "production": {
@@ -167,36 +147,61 @@ def build_spec(values: dict) -> dict:
             "cost_per_1000_rub": round(est.cost_per_1000_rub, 1),
             "total_per_year_rub": round(est.total_per_year_rub),
         },
-        "balance": {
-            "stages": [
-                {"name": s.name, "t_per_year": round(s.t_per_year),
-                 "t_per_hour": round(s.t_per_hour, 1)}
-                for s in bal.stages
-            ],
+    }
+
+    # Расширенные разделы (баланс, обжиг, энергобаланс, завод). Считаются защищённо:
+    # при вырожденных исходных данных (напр. крайне малый объём) раздел опускается,
+    # а спецификация в целом остаётся валидной — без 500.
+    try:
+        from .balance import BalanceInput, material_balance
+        bal = material_balance(BalanceInput(
+            pieces_per_year=prog.pieces_per_year, piece_mass_kg=prod_in.piece_mass_kg,
+            operating_hours_per_year=prog.operating_hours_per_year))
+        spec["balance"] = {
+            "stages": [{"name": s.name, "t_per_year": round(s.t_per_year),
+                        "t_per_hour": round(s.t_per_hour, 1)} for s in bal.stages],
             "raw_dry_t_per_year": bal.raw_dry_t_per_year,
             "forming_water_t_per_year": bal.forming_water_t_per_year,
             "water_removed_drying_t": bal.water_removed_drying_t,
             "loi_removed_firing_t": bal.loi_removed_firing_t,
             "reject_drying_t": bal.reject_drying_t,
             "reject_firing_t": bal.reject_firing_t,
-        },
-        "firing": {
-            "max_temp_c": fir.max_temp_c,
-            "residence_h": fir.residence_h,
-            "gas_m3_per_hour": fir.gas_m3_per_hour,
-            "gas_m3_per_1000": fir.gas_m3_per_1000,
+        }
+        from .firing import FiringInput, firing_calc
+        fir = firing_calc(FiringInput(pieces_per_hour=prog.pieces_per_hour,
+                                      piece_mass_kg=prod_in.piece_mass_kg))
+        spec["firing"] = {
+            "max_temp_c": fir.max_temp_c, "residence_h": fir.residence_h,
+            "gas_m3_per_hour": fir.gas_m3_per_hour, "gas_m3_per_1000": fir.gas_m3_per_1000,
             "zones": [{"name": z.name, "temp_range_c": z.temp_range_c,
                        "share_pct": z.share_pct, "time_h": z.time_h} for z in fir.zones],
-        },
-        "energy": {
+        }
+        from .energy import EnergyInput, energy_balance
+        _hours = prog.operating_hours_per_year or 7920.0
+        en = energy_balance(EnergyInput(
+            water_removed_kg_per_h=bal.water_removed_drying_t * 1000.0 / _hours,
+            kiln_heat_kcal_per_h=fir.heat_per_hour_kcal))
+        spec["energy"] = {
             "dryer_demand_kcal_per_h": en.dryer_demand_kcal_per_h,
             "kiln_recoverable_kcal_per_h": en.kiln_recoverable_kcal_per_h,
             "coverage_pct": en.coverage_pct,
             "net_dryer_gas_m3_per_h": en.net_dryer_gas_m3_per_h,
-        },
-        "grades": grades,
-        "warehouses": wh,
-        "staffing": stf,
-        "ecology": eco,
-        "capex": cap,
-    }
+        }
+    except Exception:
+        pass
+
+    try:
+        from .plant import quality_grades, warehouses, staffing, ecology, CapexInput, capex_estimate
+        annual_clay = (prog.resources_per_year.get("clay_main_t", 0)
+                       + prog.resources_per_year.get("clay_kaolin_t", 0))
+        spec["grades"] = quality_grades(values.get("product", ""))
+        spec["warehouses"] = warehouses(annual_clay, prog.pieces_per_year, prod_in.piece_mass_kg)
+        spec["staffing"] = staffing(shifts_per_day=int(getattr(prod_in, "shifts_per_day", 2) or 2))
+        spec["ecology"] = ecology(prog.resources_per_year.get("gas_m3", 0))
+        spec["capex"] = capex_estimate(CapexInput(
+            total_area_m2=ar.total_m2, pieces_per_year=prog.pieces_per_year,
+            cost_per_1000_rub=est.cost_per_1000_rub))
+    except Exception:
+        pass
+
+    return spec

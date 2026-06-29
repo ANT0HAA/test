@@ -56,6 +56,19 @@ def test_parse_capacity():
     assert parse_capacity("60 млн шт/год").pieces_per_year == 60_000_000
     assert parse_capacity("15000000 в год").pieces_per_year == 15_000_000
     assert parse_capacity("") is None
+    # разговорное «15м» = 15 млн (не 15 штук); «смену» не трогаем
+    assert parse_capacity("15м в год").pieces_per_year == 15_000_000
+    assert parse_capacity("15 м/год").pieces_per_year == 15_000_000
+    assert parse_capacity("30000 шт/смену").pieces_per_shift == 30000
+
+
+def test_build_spec_robust_to_degenerate_input():
+    from calc import build_spec
+    # крайне малый объём → расчёты обжига/баланса вырождены, но спецификация НЕ падает
+    s = build_spec({"product": "рядовой кирпич", "capacity": "5 в год"})
+    assert s["has_data"] is True
+    assert "production" in s and "cost" in s        # ядро на месте
+    assert "firing" not in s                        # вырожденный раздел опущен, без 500
 
 
 def test_equipment_selection_scales():
