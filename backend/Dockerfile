@@ -18,4 +18,8 @@ COPY . .
 
 RUN mkdir -p chroma_data uploads
 
-CMD ["uvicorn", "main:app", "--host", "0.0.0.0", "--port", "8000"]
+# Большой ws-ping-timeout: чат не рвётся, пока модель грузится в память (~мин) или
+# инициализируются эмбеддинги ChromaDB при первом запросе (иначе WS закрывается по
+# таймауту пинга 1011 и в чате видна «ошибка загрузки»).
+CMD ["uvicorn", "main:app", "--host", "0.0.0.0", "--port", "8000", \
+     "--ws-ping-interval", "30", "--ws-ping-timeout", "600"]
